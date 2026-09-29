@@ -40,7 +40,11 @@ describe('transition.service (ACID)', () => {
     const deal = await Deal.create({ workspaceId: ws._id, title: 'Beta', stage: 'new' });
     await expect(
       withTransaction(async (s) => {
-        await transition({ doc: deal, entity: 'deal', to: 'contacted', statusField: 'stage' }, s);
+        // Reload inside the txn so the body is idempotent: session.withTransaction
+        // may re-run this callback on a transient error, and mutating a doc
+        // captured outside would make a retry see the already-changed stage.
+        const fresh = await Deal.findById(deal._id).session(s);
+        await transition({ doc: fresh, entity: 'deal', to: 'contacted', statusField: 'stage' }, s);
         throw new Error('later step fails');
       }),
     ).rejects.toThrow('later step fails');

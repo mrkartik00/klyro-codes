@@ -30,19 +30,25 @@ export async function recordPitchEvent({ slug, token, type, section, scrollDepth
 
   let firstView = false;
   await withTransaction(async (session) => {
+    // Reload inside the txn so a retry of this body doesn't double-count the
+    // in-memory view increment; all mutations use DB-atomic operators.
+    const fresh = await PitchPage.findById(page._id).session(session);
     await PitchEvent.create(
-      [{ workspaceId: page.workspaceId, pitchPageId: page._id, type, section, scrollDepth, sessionId }],
+      [{ workspaceId: fresh.workspaceId, pitchPageId: fresh._id, type, section, scrollDepth, sessionId }],
       { session, ordered: true },
     );
     if (type === 'view') {
-      if (!page.firstViewedAt) {
-        page.firstViewedAt = new Date();
-        firstView = true;
-      }
-      page.viewCount += 1;
-      await page.save({ session });
-      if (firstView && page.leadId) {
-        await Lead.updateOne({ _id: page.leadId }, { $inc: { score: 5 } }, { session });
+      firstView = !fresh.firstViewedAt;
+      await PitchPage.updateOne(
+        { _id: fresh._id },
+        {
+          $inc: { viewCount: 1 },
+          ...(firstView ? { $set: { firstViewedAt: new Date() } } : {}),
+        },
+        { session },
+      );
+      if (firstView && fresh.leadId) {
+        await Lead.updateOne({ _id: fresh.leadId }, { $inc: { score: 5 } }, { session });
       }
     }
   });

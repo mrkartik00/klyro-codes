@@ -7,6 +7,7 @@ import { outreachRouter } from './outreach.routes.js';
 import { dealsRouter, quotationsRouter } from './deals.routes.js';
 import { portfolioRouter, scrapeRouter, settingsRouter, auditRouter } from './settings.routes.js';
 import { analyticsRouter } from './analytics.routes.js';
+import { filesRouter } from './files.routes.js';
 
 // All admin routes require an authenticated admin and are workspace-scoped.
 export const adminRouter = Router();
@@ -21,3 +22,4 @@ adminRouter.use('/scrape', scrapeRouter);
 adminRouter.use('/settings', settingsRouter);
 adminRouter.use('/audit-logs', auditRouter);
 adminRouter.use('/analytics', analyticsRouter);
+adminRouter.use('/files', filesRouter);

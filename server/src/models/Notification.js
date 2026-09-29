@@ -20,6 +20,7 @@ const fileSchema = new mongoose.Schema({
   mime: { type: String },
   size: { type: Number },
   checksum: { type: String },
+  status: { type: String, enum: ['pending', 'ready'], default: 'pending', index: true },
   visibility: { type: String, enum: ['private', 'public'], default: 'private' },
 });
 fileSchema.plugin(basePlugin, { softDelete: true });
