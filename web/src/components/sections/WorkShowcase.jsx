@@ -56,7 +56,7 @@ export function WorkShowcase({ heading = 'Selected work', limit, showAllLink = t
   const items = limit ? projects.slice(0, limit) : projects;
 
   return (
-    <section ref={ref} id="work" className="scroll-mt-24 px-6 py-32">
+    <section ref={ref} id="work" className="scroll-mt-24 px-5 py-20 sm:px-6 sm:py-28 lg:py-32">
       <div className="mx-auto max-w-6xl">
         <SectionHeader
           index="02"

@@ -35,7 +35,7 @@ export function Process() {
   }, [reduced]);
 
   return (
-    <section ref={ref} id="process" className="scroll-mt-24 px-6 py-32">
+    <section ref={ref} id="process" className="scroll-mt-24 px-5 py-20 sm:px-6 sm:py-28 lg:py-32">
       <div className="mx-auto grid max-w-6xl gap-16 lg:grid-cols-[1fr_1.3fr]">
         <div className="lg:sticky lg:top-32 lg:self-start">
           <SectionHeader

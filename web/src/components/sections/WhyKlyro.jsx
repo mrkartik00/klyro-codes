@@ -8,7 +8,7 @@ export function WhyKlyro() {
   const card = 'relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] p-8';
 
   return (
-    <section ref={ref} className="px-6 py-32">
+    <section ref={ref} className="px-5 py-20 sm:px-6 sm:py-28 lg:py-32">
       <div className="mx-auto max-w-6xl">
         <SectionHeader
           index="04"

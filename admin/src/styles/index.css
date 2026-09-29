@@ -36,6 +36,13 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
     min-height: 100dvh;
+    overflow-x: clip;
+    -webkit-tap-highlight-color: transparent;
+  }
+  img,
+  svg,
+  canvas {
+    max-width: 100%;
   }
   h1,
   h2,
@@ -56,4 +63,9 @@
       scroll-behavior: auto !important;
     }
   }
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }

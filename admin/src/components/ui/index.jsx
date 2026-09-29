@@ -18,15 +18,15 @@ export function Button({
     success: 'bg-green-600 text-white hover:bg-green-500 border border-transparent',
   };
   const sizes = {
-    sm: 'h-8 px-3 text-xs',
-    md: 'h-10 px-4 text-sm',
-    icon: 'h-10 w-10',
+    sm: 'h-9 px-3 text-xs',
+    md: 'h-11 px-4 text-sm sm:h-10',
+    icon: 'h-11 w-11 sm:h-10 sm:w-10',
   };
   return (
     <Comp
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors duration-150 disabled:opacity-50 disabled:pointer-events-none cursor-pointer min-h-[2.75rem] focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring',
-        size === 'sm' ? 'min-h-[2rem]' : '',
+        'inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors duration-150 disabled:opacity-50 disabled:pointer-events-none cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+        size === 'sm' ? 'min-h-[2.25rem]' : 'min-h-[2.75rem] sm:min-h-[2.5rem]',
         variants[variant],
         sizes[size],
         className
@@ -40,7 +40,8 @@ export function Input({ className, ...props }) {
   return (
     <input
       className={cn(
-        'h-10 w-full rounded-lg border border-input bg-muted px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none transition-colors',
+        // text-base on phones prevents iOS auto-zoom on focus; sm:text-sm on desktop.
+        'h-11 w-full min-w-0 rounded-lg border border-input bg-muted px-3 text-base text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none transition-colors sm:h-10 sm:text-sm',
         className
       )}
       {...props}
@@ -52,7 +53,7 @@ export function Textarea({ className, ...props }) {
   return (
     <textarea
       className={cn(
-        'min-h-[80px] w-full rounded-lg border border-input bg-muted px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none transition-colors',
+        'min-h-[96px] w-full min-w-0 rounded-lg border border-input bg-muted px-3 py-2 text-base text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none transition-colors sm:text-sm',
         className
       )}
       {...props}
@@ -64,7 +65,7 @@ export function Select({ className, children, ...props }) {
   return (
     <select
       className={cn(
-        'h-10 w-full rounded-lg border border-input bg-muted px-3 text-sm text-foreground focus:border-ring focus:outline-none transition-colors',
+        'h-11 w-full min-w-0 rounded-lg border border-input bg-muted px-3 text-base text-foreground focus:border-ring focus:outline-none transition-colors sm:h-10 sm:text-sm',
         className
       )}
       {...props}
@@ -152,9 +153,26 @@ export function Spinner({ className }) {
 
 export function EmptyState({ title, hint }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border py-16 text-center">
+    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border px-4 py-16 text-center">
       <p className="text-sm font-medium text-foreground">{title}</p>
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * Responsive table container: horizontal scroll on narrow screens instead of
+ * blowing out the page width. Wrap any <table> with it.
+ */
+export function TableWrap({ className, children }) {
+  return (
+    <div
+      className={cn(
+        '-mx-4 overflow-x-auto overscroll-x-contain px-4 sm:mx-0 sm:px-0 [&_table]:min-w-[640px] [&_table]:w-full',
+        className
+      )}
+    >
+      {children}
     </div>
   );
 }

@@ -45,7 +45,7 @@ export const Input = forwardRef(function Input(
     <input
       ref={ref}
       className={cn(
-        'w-full min-h-11 rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] px-3 text-sm text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] transition-colors duration-150 focus:border-[var(--color-primary)] focus-visible:outline-none',
+        'w-full min-w-0 min-h-11 rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] px-3 text-base sm:text-sm text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] transition-colors duration-150 focus:border-[var(--color-primary)] focus-visible:outline-none',
         className
       )}
       {...props}
@@ -61,7 +61,7 @@ export const Textarea = forwardRef(function Textarea(
     <textarea
       ref={ref}
       className={cn(
-        'w-full min-h-24 rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 text-sm text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] transition-colors duration-150 focus:border-[var(--color-primary)] focus-visible:outline-none',
+        'w-full min-w-0 min-h-24 rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 text-base sm:text-sm text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)] transition-colors duration-150 focus:border-[var(--color-primary)] focus-visible:outline-none',
         className
       )}
       {...props}

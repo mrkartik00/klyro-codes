@@ -30,12 +30,12 @@ const cols = [
 
 export function Footer() {
   const year = new Date().getFullYear();
-  const linkCls = 'text-[var(--color-muted-foreground)] transition-colors hover:text-[var(--color-foreground)]';
+  const linkCls = 'inline-flex min-h-[32px] items-center text-[var(--color-muted-foreground)] transition-colors hover:text-[var(--color-foreground)]';
 
   return (
     <footer className="relative overflow-hidden border-t border-white/10">
-      <div className="mx-auto grid max-w-6xl gap-12 px-6 pt-20 pb-12 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
-        <div>
+      <div className="mx-auto grid max-w-6xl grid-cols-2 gap-x-6 gap-y-10 px-5 pt-16 pb-12 sm:px-6 sm:pt-20 md:grid-cols-[1.4fr_1fr_1fr_1fr] md:gap-12">
+        <div className="col-span-2 md:col-span-1">
           <Logo />
           <p className="mt-5 max-w-xs text-sm leading-relaxed text-[var(--color-muted-foreground)]">
             A product studio building web and mobile software that wins customers. Based in India,

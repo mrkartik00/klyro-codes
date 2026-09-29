@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useNavigate, useParams } from 'react-router-dom';
-import { useAcceptQuotation, useQuotation } from '../hooks/usePortalData.js';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useAcceptQuotation, useQuotation, useQuotations } from '../hooks/usePortalData.js';
 import {
   Button,
   Card,
@@ -15,7 +15,7 @@ import {
   StatusBadge,
 } from '../components/ui/index.jsx';
 import { useToast } from '../components/Toast.jsx';
-import { formatMoney } from '../lib/utils.js';
+import { formatDate, formatMoney } from '../lib/utils.js';
 
 const lookupSchema = z.object({
   quoteId: z.string().min(1, 'Enter a quotation ID'),
@@ -29,6 +29,7 @@ export default function Quotes() {
 
 function QuoteLookup() {
   const navigate = useNavigate();
+  const { data: quotes = [], isLoading } = useQuotations();
   const {
     register,
     handleSubmit,
@@ -38,16 +39,47 @@ function QuoteLookup() {
   return (
     <div className="space-y-6">
       <h1 className="font-heading text-2xl font-semibold">Quotes</h1>
+
+      {isLoading ? (
+        <p className="text-sm text-[var(--color-muted-foreground)]">Loading quotes…</p>
+      ) : quotes.length > 0 ? (
+        <ul className="space-y-3">
+          {quotes.map((q) => {
+            const qid = q._id || q.id;
+            return (
+              <li key={qid}>
+                <Link
+                  to={`/quotes/${qid}`}
+                  className="flex min-h-11 flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 transition-colors hover:bg-[var(--color-muted)]"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium">Quotation v{q.version ?? 1}</p>
+                    <p className="text-sm text-[var(--color-muted-foreground)]">
+                      {formatMoney(q.totalMinor, q.currency)} · {formatDate(q.createdAt)}
+                    </p>
+                  </div>
+                  <StatusBadge status={q.status} />
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="text-sm text-[var(--color-muted-foreground)]">
+          No quotations have been shared with you yet.
+        </p>
+      )}
+
       <Card>
         <p className="mb-4 text-sm text-[var(--color-muted-foreground)]">
-          Enter the quotation ID shared with you to view and accept it.
+          Have a quotation ID? Open it directly.
         </p>
         <form
           onSubmit={handleSubmit((v) => navigate(`/quotes/${v.quoteId.trim()}`))}
-          className="flex items-end gap-3"
+          className="flex flex-col gap-3 sm:flex-row sm:items-end"
           noValidate
         >
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <Label htmlFor="quoteId">Quotation ID</Label>
             <Input id="quoteId" {...register('quoteId')} />
             <FieldError>{errors.quoteId?.message}</FieldError>
@@ -119,8 +151,8 @@ function QuoteDetail({ id }) {
         <StatusBadge status={data.status} />
       </div>
 
-      <Card className="p-0 overflow-hidden">
-        <table className="w-full text-sm">
+      <Card className="p-0 overflow-x-auto">
+        <table className="w-full min-w-[480px] text-sm [&_th]:whitespace-nowrap">
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted-foreground)]">
               <th className="p-3 font-medium">Item</th>

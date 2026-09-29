@@ -116,7 +116,7 @@ export default function CampaignDetail() {
                 className="mt-5 space-y-3 border-t border-border pt-5"
               >
                 <h4 className="text-sm font-semibold">Add step</h4>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div>
                     <Label htmlFor="day">Day offset</Label>
                     <Input

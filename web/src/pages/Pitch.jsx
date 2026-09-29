@@ -48,7 +48,7 @@ export function Pitch() {
   if (!token) {
     return (
       <Centered>
-        <h1 className="text-2xl font-600">Invalid link</h1>
+        <h1 className="text-2xl font-semibold">Invalid link</h1>
         <p className="mt-2 text-[var(--color-muted-foreground)]">
           This pitch link is missing its access token.
         </p>
@@ -67,7 +67,7 @@ export function Pitch() {
   if (isError || !data) {
     return (
       <Centered>
-        <h1 className="text-2xl font-600">Pitch unavailable</h1>
+        <h1 className="text-2xl font-semibold">Pitch unavailable</h1>
         <p className="mt-2 text-[var(--color-muted-foreground)]">
           This link may have expired. Please contact your Klyro representative.
         </p>
@@ -78,7 +78,7 @@ export function Pitch() {
   const sections = Array.isArray(data.sections) ? data.sections : [];
 
   return (
-    <main className="px-6 pt-32 pb-24">
+    <main className="px-5 pt-28 pb-20 sm:px-6 sm:pt-32 sm:pb-24">
       <div className="mx-auto max-w-3xl">
         <header className="flex items-center gap-4">
           {data.logoUrl && (
@@ -93,7 +93,7 @@ export function Pitch() {
             <p className="text-sm text-[var(--color-muted-foreground)]">
               A proposal from Klyro for
             </p>
-            <h1 className="text-3xl font-700">
+            <h1 className="text-3xl font-bold">
               {data.businessName || 'Your business'}
             </h1>
           </div>
@@ -103,7 +103,7 @@ export function Pitch() {
           {sections.map((s, i) => (
             <section key={s.id || s.title || i}>
               {s.title && (
-                <h2 className="text-2xl font-600">{s.title}</h2>
+                <h2 className="text-2xl font-semibold">{s.title}</h2>
               )}
               {s.body && (
                 <p className="mt-3 whitespace-pre-line text-[var(--color-muted-foreground)]">

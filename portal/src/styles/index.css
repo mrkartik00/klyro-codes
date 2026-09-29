@@ -32,6 +32,13 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
+    overflow-x: clip;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+  }
+  img,
+  svg {
+    max-width: 100%;
   }
   :focus-visible {
     outline: 2px solid var(--color-ring);

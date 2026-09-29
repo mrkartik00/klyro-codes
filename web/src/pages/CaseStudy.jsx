@@ -26,7 +26,7 @@ export function CaseStudy() {
             <p data-reveal className="eyebrow">{project.category}</p>
             <h1
               data-reveal
-              className="mt-5 font-heading text-[clamp(3rem,8vw,7rem)] leading-[0.92] font-semibold"
+              className="mt-5 font-heading text-[clamp(2.4rem,9vw,7rem)] leading-[0.95] font-semibold break-words"
             >
               {project.name}
             </h1>
@@ -38,19 +38,19 @@ export function CaseStudy() {
 
         <dl
           data-reveal
-          className="mt-14 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 md:grid-cols-3"
+          className="mt-14 grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-2 md:grid-cols-3"
         >
-          <div className="bg-[#07070a] px-6 py-5">
+          <div className="min-w-0 bg-[#07070a] px-5 py-4 sm:px-6 sm:py-5">
             <dt className="eyebrow">Site</dt>
-            <dd className="mt-2 font-heading text-lg">{project.domain}</dd>
+            <dd className="mt-2 font-heading text-base break-all sm:text-lg">{project.domain}</dd>
           </div>
-          <div className="bg-[#07070a] px-6 py-5">
+          <div className="min-w-0 bg-[#07070a] px-5 py-4 sm:px-6 sm:py-5">
             <dt className="eyebrow">Type</dt>
-            <dd className="mt-2 font-heading text-lg">{project.category}</dd>
+            <dd className="mt-2 font-heading text-base sm:text-lg">{project.category}</dd>
           </div>
-          <div className="col-span-2 bg-[#07070a] px-6 py-5 md:col-span-1">
+          <div className="min-w-0 bg-[#07070a] px-5 py-4 sm:col-span-2 sm:px-6 sm:py-5 md:col-span-1">
             <dt className="eyebrow">Stack</dt>
-            <dd className="mt-2 font-heading text-lg">{project.tags.join(' · ')}</dd>
+            <dd className="mt-2 font-heading text-base sm:text-lg">{project.tags.join(' · ')}</dd>
           </div>
         </dl>
 
@@ -70,11 +70,11 @@ export function CaseStudy() {
           to={`/work/${slugify(next.name)}`}
           data-cursor="view"
           data-cursor-label="Next"
-          className="group mt-28 flex items-end justify-between gap-6 border-t border-white/10 pt-10"
+          className="group mt-20 flex items-end sm:mt-28 justify-between gap-6 border-t border-white/10 pt-10"
         >
           <div>
             <p className="eyebrow">Next project</p>
-            <p className="mt-4 font-heading text-[clamp(2rem,6vw,5rem)] leading-none font-semibold text-white/50 transition-colors duration-500 group-hover:text-white">
+            <p className="mt-4 font-heading text-[clamp(1.75rem,6vw,5rem)] leading-none font-semibold break-words text-white/50 transition-colors duration-500 group-hover:text-white">
               {next.name}
             </p>
           </div>

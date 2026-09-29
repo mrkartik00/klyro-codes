@@ -71,8 +71,8 @@ export default function Mailboxes() {
             <EmptyState title="No mailboxes" hint="Add a sending account." />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="-mx-px overflow-x-auto overscroll-x-contain">
+            <table className="w-full min-w-[640px] text-sm [&_th]:whitespace-nowrap">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-4 py-3">Email</th>

@@ -4,7 +4,7 @@ import { Button } from '../ui/Button.jsx';
 export function CtaBand() {
   const ref = useScrollReveal();
   return (
-    <section ref={ref} className="px-6 py-24">
+    <section ref={ref} className="px-5 py-16 sm:px-6 sm:py-24">
       <div className="relative mx-auto max-w-6xl overflow-hidden rounded-[2.5rem] border border-white/10 px-8 py-24 text-center sm:px-16">
         <div aria-hidden="true" className="grid-bg absolute inset-0" />
         <div

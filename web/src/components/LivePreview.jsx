@@ -45,6 +45,38 @@ function useNearViewport(ref, rootMargin = '400px') {
   return near;
 }
 
+/**
+ * Tracks whether the element is within `rootMargin` of the viewport. Unlike a
+ * one-shot "near" flag this flips back to false when the card scrolls away, so
+ * heavy live iframes are unmounted and only on-screen sites keep running.
+ */
+function useInViewport(ref, rootMargin = '200px') {
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    if (typeof IntersectionObserver === 'undefined') {
+      setInView(true);
+      return undefined;
+    }
+    const io = new IntersectionObserver(([e]) => setInView(e.isIntersecting), { rootMargin });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ref, rootMargin]);
+  return inView;
+}
+
+/** Small screens / data-saver get a tighter live-embed budget. */
+function useCompactDevice() {
+  const [compact] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const small = window.matchMedia('(max-width: 767px)').matches;
+    const saveData = navigator.connection?.saveData === true;
+    return small || saveData;
+  });
+  return compact;
+}
+
 function useWidth(ref) {
   const [w, setW] = useState(0);
   useEffect(() => {
@@ -118,6 +150,8 @@ export function LivePreview({ project, className = '' }) {
   const rootRef = useRef(null);
   const viewportRef = useRef(null);
   const near = useNearViewport(rootRef);
+  const compact = useCompactDevice();
+  const inView = useInViewport(rootRef, compact ? '0px' : '300px');
   const width = useWidth(viewportRef);
   const reduced = useReducedMotion();
 
@@ -129,15 +163,22 @@ export function LivePreview({ project, className = '' }) {
 
   useEffect(() => {
     let alive = true;
-    if (project.preview) loadManifest(project.preview).then((m) => alive && setManifest(m));
+    // Fetch capture manifests lazily, once the card nears the viewport.
+    if (project.preview && near) loadManifest(project.preview).then((m) => alive && setManifest(m));
     return () => {
       alive = false;
     };
-  }, [project.preview]);
+  }, [project.preview, near]);
 
   const pages = manifest?.pages ?? [];
   const paths = pages.length ? pages.map((p) => p.path) : ['/'];
-  const canEmbed = Boolean(project.embed && project.url && near && !reduced && !failed);
+  // Live frame only while the card is on screen (unmounted when scrolled away).
+  const canEmbed = Boolean(project.embed && project.url && inView && !reduced && !failed);
+
+  // When the live frame unmounts, reset readiness so captures show again.
+  useEffect(() => {
+    if (!canEmbed) setLiveReady(false);
+  }, [canEmbed]);
 
   // Cycle pages once the current live frame is ready.
   useEffect(() => {
@@ -195,7 +236,7 @@ export function LivePreview({ project, className = '' }) {
         aria-label={`Live preview of ${project.name}`}
       >
         {showCaptures && (
-          <CaptureReel pages={pages} width={width} reduced={reduced} onPage={setPath} />
+          <CaptureReel pages={pages} width={width} reduced={reduced || !inView} onPage={setPath} />
         )}
         {!showCaptures && !isLive && (
           <div className="absolute inset-0 flex items-center justify-center text-xs text-white/30">

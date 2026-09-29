@@ -22,7 +22,7 @@ export default function Invoices() {
         <EmptyState title="No invoices yet" />
       ) : (
         <Card className="p-0 overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[520px] text-sm [&_th]:whitespace-nowrap">
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted-foreground)]">
                 <th className="p-3 font-medium">Invoice</th>

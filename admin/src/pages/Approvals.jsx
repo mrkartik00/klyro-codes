@@ -14,14 +14,18 @@ import {
   Badge,
   Spinner,
   EmptyState,
+  Label,
+  Input,
 } from '../components/ui/index.jsx';
+
+import { draftOf } from '../lib/drafts.js';
 
 export default function Approvals() {
   const qc = useQueryClient();
   const toast = useToast();
   const [selected, setSelected] = useState(new Set());
   const [editing, setEditing] = useState(null);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState({ subject: '', body: '' });
 
   const { data, isLoading } = useQuery({
     queryKey: ['approvals'],
@@ -72,8 +76,9 @@ export default function Approvals() {
   };
 
   const openEdit = (item) => {
+    const d = draftOf(item);
     setEditing(item);
-    setDraft(item.draft || item.body || item.editedDraft || '');
+    setDraft({ subject: d.subject, body: d.body });
   };
 
   return (
@@ -83,7 +88,7 @@ export default function Approvals() {
         description="Review AI-drafted outbound messages."
         actions={
           selected.size > 0 && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="success"
                 size="sm"
@@ -117,32 +122,33 @@ export default function Approvals() {
         <div className="space-y-3">
           {rows.map((item) => {
             const id = item._id || item.id;
+            const d = draftOf(item);
             return (
               <Card key={id}>
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(id)}
-                      onChange={() => toggle(id)}
-                      aria-label="Select for bulk action"
-                      className="mt-1 h-4 w-4 cursor-pointer"
-                    />
+                    <label className="-m-2 grid h-10 w-10 shrink-0 cursor-pointer place-items-center">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(id)}
+                        onChange={() => toggle(id)}
+                        aria-label="Select for bulk action"
+                        className="h-4 w-4 cursor-pointer"
+                      />
+                    </label>
                     <div className="min-w-0 flex-1">
                       <div className="mb-1 flex flex-wrap items-center gap-2">
-                        <span className="font-medium">
-                          {item.leadName || item.to || item.recipient || 'Recipient'}
+                        <span className="min-w-0 truncate font-medium">
+                          {item.leadName || item.to || item.recipient || `Step ${item.stepOrder ?? ''}`.trim() || 'Recipient'}
                         </span>
                         <Badge>{item.channel || 'email'}</Badge>
                         <span className="text-xs text-muted-foreground">
                           {formatDate(item.createdAt)}
                         </span>
                       </div>
-                      {item.subject && (
-                        <p className="text-sm font-medium">{item.subject}</p>
-                      )}
-                      <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
-                        {item.draft || item.body || item.editedDraft || '—'}
+                      {d.subject && <p className="text-sm font-medium break-words">{d.subject}</p>}
+                      <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">
+                        {d.body || '—'}
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <Button
@@ -183,12 +189,24 @@ export default function Approvals() {
         className="max-w-2xl"
       >
         <div className="space-y-4">
-          <Textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            className="min-h-[200px]"
-          />
-          <div className="flex justify-end gap-2">
+          <div>
+            <Label htmlFor="draft-subject">Subject</Label>
+            <Input
+              id="draft-subject"
+              value={draft.subject}
+              onChange={(e) => setDraft({ ...draft, subject: e.target.value })}
+            />
+          </div>
+          <div>
+            <Label htmlFor="draft-body">Body</Label>
+            <Textarea
+              id="draft-body"
+              value={draft.body}
+              onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+              className="min-h-[200px]"
+            />
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button variant="secondary" onClick={() => setEditing(null)}>
               Cancel
             </Button>
@@ -199,7 +217,7 @@ export default function Approvals() {
                 decide.mutate({
                   id: editing._id || editing.id,
                   decision: 'approve',
-                  editedDraft: draft,
+                  editedDraft: { subject: draft.subject, body: draft.body },
                 })
               }
             >

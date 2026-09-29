@@ -16,6 +16,13 @@ export function useProject(id) {
   });
 }
 
+export function useQuotations() {
+  return useQuery({
+    queryKey: ['quotations'],
+    queryFn: async () => unwrap(await api.get('/me/quotations')),
+  });
+}
+
 export function useQuotation(id) {
   return useQuery({
     queryKey: ['quotations', id],

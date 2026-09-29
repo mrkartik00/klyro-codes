@@ -125,8 +125,8 @@ export default function Leads() {
             <EmptyState title="No leads found" hint="Adjust filters or scrape targets." />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="-mx-px overflow-x-auto overscroll-x-contain">
+            <table className="w-full min-w-[640px] text-sm [&_th]:whitespace-nowrap">
               <thead>
                 {table.getHeaderGroups().map((hg) => (
                   <tr key={hg.id} className="border-b border-border">

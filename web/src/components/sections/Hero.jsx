@@ -35,17 +35,21 @@ export function Hero() {
         .fromTo('[data-fade]', { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 1, stagger: 0.08 }, '-=0.9')
         .fromTo('[data-orb]', { scale: 0.6, opacity: 0 }, { scale: 1, opacity: 0.55, duration: 2 }, 0);
 
-      // Parallax: orbs drift and the headline lifts as the hero scrolls away.
-      gsap.to('[data-orb]', {
-        yPercent: 40,
-        ease: 'none',
-        scrollTrigger: { trigger: root, start: 'top top', end: 'bottom top', scrub: 1 },
-      });
-      gsap.to('[data-hero-content]', {
-        y: -80,
-        opacity: 0.2,
-        ease: 'none',
-        scrollTrigger: { trigger: root, start: 'top top', end: 'bottom top', scrub: 1 },
+      // Parallax only on large, fine-pointer screens — scrubbed transforms on
+      // phones cost frames and fight native touch scrolling.
+      const mm = gsap.matchMedia();
+      mm.add('(min-width: 1024px) and (pointer: fine)', () => {
+        gsap.to('[data-orb]', {
+          yPercent: 40,
+          ease: 'none',
+          scrollTrigger: { trigger: root, start: 'top top', end: 'bottom top', scrub: 1 },
+        });
+        gsap.to('[data-hero-content]', {
+          y: -80,
+          opacity: 0.2,
+          ease: 'none',
+          scrollTrigger: { trigger: root, start: 'top top', end: 'bottom top', scrub: 1 },
+        });
       });
     }, root);
     return () => ctx.revert();
@@ -74,7 +78,7 @@ export function Hero() {
     <section
       ref={rootRef}
       aria-labelledby="hero-title"
-      className="relative isolate flex min-h-[100dvh] flex-col justify-center overflow-hidden px-6 pt-32 pb-12"
+      className="relative isolate flex min-h-[100svh] flex-col justify-center overflow-hidden px-5 pt-28 pb-12 sm:px-6 sm:pt-32"
     >
       {/* Ambient background */}
       <div aria-hidden="true" className="grid-bg absolute inset-0 -z-10" />
@@ -113,7 +117,7 @@ export function Hero() {
 
         <h1
           id="hero-title"
-          className="font-heading text-[clamp(3rem,9.5vw,8.75rem)] leading-[0.92] font-semibold"
+          className="font-heading text-[clamp(2.6rem,11vw,8.75rem)] leading-[0.95] font-semibold break-words sm:leading-[0.92]"
         >
           {lines.map((l) => (
             <span key={l.text} className="split-line">
@@ -144,10 +148,10 @@ export function Hero() {
 
         <dl
           data-fade
-          className="mt-20 grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-3"
+          className="mt-14 grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:mt-20 sm:grid-cols-3"
         >
           {stats.map((s) => (
-            <div key={s.label} className="bg-[#07070a]/90 px-6 py-5 backdrop-blur">
+            <div key={s.label} className="bg-[#07070a] px-5 py-4 sm:px-6 sm:py-5">
               <dt className="text-sm text-[var(--color-muted-foreground)]">{s.label}</dt>
               <dd className="mt-1 font-heading text-2xl font-semibold tracking-tight">{s.value}</dd>
             </div>
@@ -162,10 +166,9 @@ export function Hero() {
       >
         Scroll
         <span className="relative h-10 w-px overflow-hidden bg-white/10" aria-hidden="true">
-          <span className="absolute inset-x-0 top-0 h-4 animate-[scrollcue_1.8s_ease-in-out_infinite] bg-[var(--color-brand)]" />
+          <span className="absolute inset-x-0 top-0 h-4 animate-[scrollcue_1.8s_ease-in-out_infinite] bg-[var(--color-brand)] motion-reduce:animate-none" />
         </span>
       </a>
-      <style>{'@keyframes scrollcue{0%{transform:translateY(-100%)}100%{transform:translateY(250%)}}'}</style>
     </section>
   );
 }
