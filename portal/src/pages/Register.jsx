@@ -9,11 +9,28 @@ import { Button, FieldError, Input, Label } from '../components/ui/index.jsx';
 import { useToast } from '../components/Toast.jsx';
 
 const schema = z.object({
-  name: z.string().min(2, 'Enter your name'),
-  email: z.string().email('Enter a valid email'),
-  password: z.string().min(8, 'Use at least 8 characters'),
+  name: z.string().trim().min(2, 'Enter your name'),
+  email: z.string().trim().email('Enter a valid email'),
+  // Must match the server (shared registerSchema): 12+ characters.
+  password: z.string().min(12, 'Use at least 12 characters').max(200, 'Too long'),
   website_url: z.string().max(0).optional(), // honeypot
 });
+
+const FIELD_LABELS = { name: 'Name', email: 'Email', password: 'Password' };
+
+// Turn the API's validation details into a readable message.
+function describeError(err) {
+  const e = err.response?.data?.error;
+  const details = e?.details;
+  if (Array.isArray(details) && details.length) {
+    return details
+      .map((d) => `${FIELD_LABELS[d.path] ?? d.path}: ${d.message}`)
+      .join(' · ');
+  }
+  if (err.response?.status === 409) return 'An account with this email already exists. Try signing in.';
+  if (err.response?.status === 429) return 'Too many attempts. Please wait a few minutes and try again.';
+  return e?.message || 'Unable to register. Please try again.';
+}
 
 export default function Register() {
   const navigate = useNavigate();
@@ -42,10 +59,7 @@ export default function Register() {
       });
       navigate('/verify', { state: { email: values.email } });
     } catch (err) {
-      setServerError(
-        err.response?.data?.error?.message ||
-          'Unable to register. Please try again.'
-      );
+      setServerError(describeError(err));
     }
   }
 
@@ -91,12 +105,19 @@ export default function Register() {
             type="password"
             autoComplete="new-password"
             aria-invalid={Boolean(errors.password)}
+            aria-describedby="password-hint"
             {...register('password')}
           />
-          <FieldError>{errors.password?.message}</FieldError>
+          {errors.password ? (
+            <FieldError>{errors.password.message}</FieldError>
+          ) : (
+            <p id="password-hint" className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+              At least 12 characters.
+            </p>
+          )}
         </div>
 
-        <div aria-hidden="true" className="absolute left-[-9999px]">
+        <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden">
           <label htmlFor="website_url">Leave this field empty</label>
           <input
             id="website_url"
