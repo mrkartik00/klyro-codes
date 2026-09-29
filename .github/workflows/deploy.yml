@@ -4,11 +4,15 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'design-system/**'
+      - 'n8n/**'
 
-# Deploys the API + built frontends to the VPS over SSH. Requires repo secrets:
-# SSH_HOST, SSH_PORT, SSH_USER, SSH_KEY (private key), and the server .env in place.
+# Deploys to the VPS over SSH: pull, install, build frontends, reload the API.
+# Requires repo secrets: SSH_HOST, SSH_PORT, SSH_USER, SSH_KEY (klyro_deploy private key).
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,31 +21,28 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run lint
       - run: npm test
-      - run: npm run build
 
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
       - name: Add SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Rsync build artifacts
-        run: |
-          rsync -az --delete -e "ssh -p ${{ secrets.SSH_PORT }}" \
-            server/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/var/www/klyro/server/
-          rsync -az --delete -e "ssh -p ${{ secrets.SSH_PORT }}" \
-            shared/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/var/www/klyro/shared/
-          for app in web portal admin; do
-            rsync -az --delete -e "ssh -p ${{ secrets.SSH_PORT }}" \
-              $app/dist/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/var/www/klyro/$app/
-          done
-
-      - name: Install prod deps + reload
+          ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Pull, build & reload on VPS
         run: |
           ssh -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
-            cd /var/www/klyro && npm ci --omit=dev --workspace server &&
-            pm2 reload infra/ecosystem.config.cjs --update-env &&
-            bash infra/scripts/smoke-check.sh || (pm2 logs klyro-api --lines 50 && exit 1)
+            set -e
+            cd /var/www/klyro
+            git pull --ff-only
+            npm install --no-audit --no-fund
+            VITE_API_URL=https://api.klyro.codes/api/v1 npm run build
+            pm2 reload infra/ecosystem.config.cjs --update-env
+            sleep 4
+            bash infra/scripts/smoke-check.sh https://api.klyro.codes/api/v1 || (pm2 logs klyro-api --lines 40 --nostream; exit 1)
           '
