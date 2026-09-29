@@ -1,5 +1,5 @@
-import crypto from 'node:crypto';
 import { env } from '../../config/env.js';
+import { sign } from '../../utils/hmac.js';
 import { logger } from '../../config/logger.js';
 
 // n8n integration. Two directions:
@@ -14,10 +14,8 @@ export async function triggerWorkflow(path, body) {
   }
   const payload = JSON.stringify(body ?? {});
   const timestamp = String(Date.now());
-  const signature = crypto
-    .createHmac('sha256', env.INTERNAL_HMAC_SECRET)
-    .update(timestamp + payload)
-    .digest('hex');
+  // Same scheme as /internal: HMAC-SHA256 over `${timestamp}.${body}`.
+  const signature = sign(timestamp, payload);
   const url = `${env.N8N_WEBHOOK_URL.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
   try {
     const res = await fetch(url, {

@@ -54,3 +54,18 @@ describe('scrape.service (E)', () => {
     expect(second.created).toBe(0);
   });
 });
+
+describe('buildScrapeQueries', async () => {
+  const { buildScrapeQueries } = await import('../../src/services/scrape.service.js');
+  it('crosses categories/keywords with cities and names the country', () => {
+    expect(
+      buildScrapeQueries({ country: 'US', categories: ['dentist', 'dentist'], keywords: ['plumber'], cities: ['Austin', 'Dallas'] }),
+    ).toEqual(['dentist in Austin, USA', 'dentist in Dallas, USA', 'plumber in Austin, USA', 'plumber in Dallas, USA']);
+  });
+  it('falls back to country-wide search without cities, and caps the count', () => {
+    expect(buildScrapeQueries({ country: 'GB', categories: ['cafe'] })).toEqual(['cafe in UK']);
+    const many = buildScrapeQueries({ country: 'US', categories: Array.from({ length: 10 }, (_, i) => `c${i}`), cities: Array.from({ length: 10 }, (_, i) => `t${i}`) });
+    expect(many).toHaveLength(40);
+  });
+  it('returns [] for a missing target', () => expect(buildScrapeQueries(null)).toEqual([]));
+});

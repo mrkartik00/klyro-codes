@@ -1,6 +1,9 @@
 {
+  "id": "KlyroApiSigner01",
   "name": "Klyro API (signed request)",
-  "meta": { "description": "Reusable sub-workflow: signs and sends an HMAC-authenticated request to the Klyro internal API. Inputs: method, path, body (object). Set KLYRO_API_BASE and KLYRO_HMAC_SECRET as n8n environment variables." },
+  "meta": {
+    "description": "Reusable sub-workflow: signs and sends an HMAC-authenticated request to the Klyro internal API. Inputs: method, path, body (object). Set KLYRO_API_BASE and KLYRO_HMAC_SECRET as n8n environment variables."
+  },
   "nodes": [
     {
       "parameters": {},
@@ -8,18 +11,25 @@
       "name": "When Executed by Another Workflow",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
         "language": "javaScript",
-        "jsCode": "const crypto = require('crypto');\nconst base = $env.KLYRO_API_BASE || 'http://127.0.0.1:4100/api/v1';\nconst secret = $env.KLYRO_HMAC_SECRET;\nconst item = $input.first().json;\nconst method = item.method || 'POST';\nconst path = item.path;\nconst body = item.body || {};\nconst raw = JSON.stringify(body);\nconst ts = Date.now().toString();\nconst signature = crypto.createHmac('sha256', secret).update(ts + '.' + raw).digest('hex');\nconst idem = item.idempotencyKey || crypto.randomUUID();\nreturn [{ json: { url: base + path, method, raw, ts, signature, idem } }];"
+        "jsCode": "// Signs one request per item (callers may pass many items, e.g. lead batches).\nconst crypto = require('crypto');\nconst base = $env.KLYRO_API_BASE || 'http://127.0.0.1:4100/api/v1';\nconst secret = $env.KLYRO_HMAC_SECRET;\nif (!secret) throw new Error('KLYRO_HMAC_SECRET is not set in the n8n environment');\nconst item = $input.item.json;\nif (!item.path) throw new Error('Klyro API call is missing \"path\"');\nconst method = (item.method || 'POST').toUpperCase();\nconst body = item.body || {};\nconst raw = JSON.stringify(body);\nconst ts = Date.now().toString();\nconst signature = crypto.createHmac('sha256', secret).update(ts + '.' + raw).digest('hex');\nconst idem = item.idempotencyKey || crypto.randomUUID();\nreturn { json: { url: base + item.path, method, raw, ts, signature, idem } };",
+        "mode": "runOnceForEachItem"
       },
       "id": "sign",
       "name": "Sign Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [220, 0]
+      "position": [
+        220,
+        0
+      ]
     },
     {
       "parameters": {
@@ -28,10 +38,22 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" },
-            { "name": "X-Klyro-Timestamp", "value": "={{ $json.ts }}" },
-            { "name": "X-Klyro-Signature", "value": "={{ $json.signature }}" },
-            { "name": "Idempotency-Key", "value": "={{ $json.idem }}" }
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Klyro-Timestamp",
+              "value": "={{ $json.ts }}"
+            },
+            {
+              "name": "X-Klyro-Signature",
+              "value": "={{ $json.signature }}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ $json.idem }}"
+            }
           ]
         },
         "sendBody": true,
@@ -44,12 +66,37 @@
       "name": "Call Klyro API",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [440, 0]
+      "position": [
+        440,
+        0
+      ]
     }
   ],
   "connections": {
-    "When Executed by Another Workflow": { "main": [[{ "node": "Sign Request", "type": "main", "index": 0 }]] },
-    "Sign Request": { "main": [[{ "node": "Call Klyro API", "type": "main", "index": 0 }]] }
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Sign Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign Request": {
+      "main": [
+        [
+          {
+            "node": "Call Klyro API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": {}
+  "settings": {
+    "executionOrder": "v1"
+  }
 }

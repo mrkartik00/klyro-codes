@@ -1,14 +1,29 @@
 {
+  "id": "KlyroW1Warmup001",
   "name": "W1 — Mailbox warmup loop",
-  "meta": { "description": "Free warmup: each mailbox sends a short natural email to your personal Gmail and other warmup addresses on a schedule, ramping volume. Recipients (a separate workflow or filter) mark them important and reply. Duplicate the Gmail send node per mailbox. Set WARMUP_RECIPIENTS (comma-separated) env var." },
+  "meta": {
+    "description": "Free warmup: each mailbox sends a short natural email to your personal Gmail and other warmup addresses on a schedule, ramping volume. Recipients (a separate workflow or filter) mark them important and reply. Duplicate the Gmail send node per mailbox. Set WARMUP_RECIPIENTS (comma-separated) env var."
+  },
   "nodes": [
     {
-      "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 2 }] } },
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 2
+            }
+          ]
+        }
+      },
       "id": "cron",
       "name": "Every 2 hours",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
@@ -19,7 +34,10 @@
       "name": "Pick recipient + copy",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [220, 0]
+      "position": [
+        220,
+        0
+      ]
     },
     {
       "parameters": {
@@ -34,12 +52,37 @@
       "name": "Gmail: warmup send (mailbox 1)",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
-      "position": [440, 0]
+      "position": [
+        440,
+        0
+      ]
     }
   ],
   "connections": {
-    "Every 2 hours": { "main": [[{ "node": "Pick recipient + copy", "type": "main", "index": 0 }]] },
-    "Pick recipient + copy": { "main": [[{ "node": "Gmail: warmup send (mailbox 1)", "type": "main", "index": 0 }]] }
+    "Every 2 hours": {
+      "main": [
+        [
+          {
+            "node": "Pick recipient + copy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick recipient + copy": {
+      "main": [
+        [
+          {
+            "node": "Gmail: warmup send (mailbox 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": {}
+  "settings": {
+    "executionOrder": "v1"
+  }
 }

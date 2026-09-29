@@ -1,76 +1,506 @@
 {
+  "id": "KlyroH1aMaps0001",
   "name": "H1a — Google Maps scrape → ingest",
-  "meta": { "description": "Runs a gosom scraper job for a scrape target, polls until done, maps places to lead records, and posts them to /internal/leads/batch in chunks of 50 via the Klyro API signer. Set SCRAPER_BASE (e.g. http://127.0.0.1:8080) and KLYRO_WORKSPACE_ID env vars." },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
   "nodes": [
     {
-      "parameters": {},
-      "id": "manual",
-      "name": "Manual/Webhook Trigger",
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
-      "position": [0, 0]
-    },
-    {
+      "id": "webhook",
+      "name": "Scrape start",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "klyro-scrape-start",
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.SCRAPER_BASE }}/jobs",
-        "sendBody": true,
-        "contentType": "json",
-        "jsonBody": "={{ JSON.stringify({ queries: $json.queries, maxResults: $json.maxResults || 200, lang: 'en' }) }}",
+        "httpMethod": "POST",
+        "path": "scrape-start",
+        "responseMode": "onReceived",
+        "responseCode": 202,
         "options": {}
-      },
-      "id": "submit",
-      "name": "Submit scrape job",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [220, 0]
+      }
     },
     {
-      "parameters": { "amount": 30, "unit": "seconds" },
-      "id": "wait",
-      "name": "Wait for scrape",
-      "type": "n8n-nodes-base.wait",
-      "typeVersion": 1.1,
-      "position": [440, 0]
-    },
-    {
-      "parameters": {
-        "method": "GET",
-        "url": "={{ $env.SCRAPER_BASE }}/jobs/{{ $json.id }}/results",
-        "options": {}
-      },
-      "id": "results",
-      "name": "Fetch results",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [660, 0]
-    },
-    {
-      "parameters": {
-        "language": "javaScript",
-        "jsCode": "// Map scraper output to Klyro lead records, chunked by 50.\nconst places = $input.first().json.results || [];\nconst records = places.map((p) => ({\n  name: p.title || p.name,\n  website: p.website || null,\n  phone: p.phone || null,\n  address: p.address || null,\n  city: p.city || null,\n  country: p.country || $json.country || 'US',\n  category: p.category || null,\n  rating: p.rating ?? null,\n  reviewCount: p.reviews ?? p.reviewCount ?? null,\n  lat: p.latitude ?? p.lat ?? null,\n  lng: p.longitude ?? p.lng ?? null,\n  placeId: p.place_id || p.placeId || null,\n}));\nconst chunks = [];\nfor (let i = 0; i < records.length; i += 50) chunks.push(records.slice(i, i + 50));\nreturn chunks.map((c, idx) => ({ json: { method: 'POST', path: '/internal/leads/batch', idempotencyKey: `${$json.id || 'job'}-${idx}`, body: { workspaceId: $env.KLYRO_WORKSPACE_ID, source: 'maps', reference: String($json.id || ''), records: c } } }));"
-      },
-      "id": "map",
-      "name": "Map & chunk",
+      "id": "verify-and-plan",
+      "name": "Verify & plan",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [880, 0]
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Verify the API's HMAC signature (same scheme as /internal), then plan the job.\nconst crypto = require('crypto');\nconst req = $input.first().json;\nconst h = req.headers || {};\nconst ts = h['x-klyro-timestamp'];\nconst sig = h['x-klyro-signature'];\nconst body = req.body || {};\nconst raw = JSON.stringify(body);\nconst secret = $env.KLYRO_HMAC_SECRET;\nconst expected = crypto.createHmac('sha256', secret).update(ts + '.' + raw).digest('hex');\nconst fresh = Math.abs(Date.now() - Number(ts)) < 5 * 60 * 1000;\nif (!ts || !sig || !fresh || sig.length !== expected.length ||\n    !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {\n  throw new Error('Rejected scrape-start: bad or expired signature');\n}\nif (!body.scrapeJobId || !body.workspaceId) throw new Error('scrape-start missing ids');\nconst queries = (body.queries || []).filter(Boolean);\nreturn [{ json: {\n  workspaceId: body.workspaceId,\n  scrapeJobId: body.scrapeJobId,\n  queries,\n  country: body.country || 'US',\n  maxResults: Math.min(Number(body.maxResults) || 200, 1000),\n  filters: body.filters || {},\n  // Rough budget: ~60s per query, 2–30 minutes total.\n  maxTimeSec: Math.min(1800, Math.max(120, 60 * queries.length)),\n} }];"
+      }
     },
     {
-      "parameters": { "workflowId": "00-klyro-api-signer", "options": {} },
-      "id": "ingest",
-      "name": "Ingest via Klyro API",
+      "id": "build-running-update",
+      "name": "Build running update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const p = $('Verify & plan').first().json;\nreturn [{ json: { method: 'POST', path: '/internal/scrape/progress',\n  body: { workspaceId: p.workspaceId, scrapeJobId: p.scrapeJobId,\n          status: p.queries.length ? 'running' : 'failed',\n          ...(p.queries.length ? {} : { error: 'Target has no categories/keywords to search' }) } } }];"
+      }
+    },
+    {
+      "id": "mark-running",
+      "name": "Mark running",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [1100, 0]
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "KlyroApiSigner01",
+          "mode": "id"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "has-queries",
+      "name": "Has queries?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Verify & plan').first().json.queries.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "submit-to-scraper",
+      "name": "Submit to scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        -100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SCRAPER_BASE }}/api/v1/jobs",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ Name: 'klyro-' + $('Verify & plan').first().json.scrapeJobId, keywords: $('Verify & plan').first().json.queries, lang: 'en', zoom: 14, depth: 1, max_time: $('Verify & plan').first().json.maxTimeSec }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "wait",
+      "name": "Wait 30s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        -100
+      ],
+      "webhookId": "klyro-scrape-wait",
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "check-status",
+      "name": "Check status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        -100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SCRAPER_BASE }}/api/v1/jobs/{{ $('Submit to scraper').first().json.id }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "done",
+      "name": "Done?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        -100
+      ],
+      "parameters": {
+        "jsCode": "// Poll gosom until the job finishes (or we give up after ~40 minutes).\nconst s = $input.first().json.Status;\nconst finished = s === 'ok' || s === 'failed';\nconst timedOut = !finished && $runIndex >= 80;\nreturn [{ json: { done: finished || timedOut, status: timedOut ? 'timeout' : s } }];"
+      }
+    },
+    {
+      "id": "finished",
+      "name": "Finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        -100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.done }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "download-csv",
+      "name": "Download CSV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        -200
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SCRAPER_BASE }}/api/v1/jobs/{{ $('Submit to scraper').first().json.id }}/download",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "parse-and-chunk",
+      "name": "Parse & chunk",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        -200
+      ],
+      "parameters": {
+        "jsCode": "// Parse the scraper CSV, apply the target filters, dedupe, chunk for the API.\nconst p = $('Verify & plan').first().json;\nconst status = $('Done?').last().json.status;\nif (status !== 'ok') {\n  return [{ json: { skip: true, found: 0, failed: true,\n    error: status === 'timeout' ? 'Scraper timed out' : 'Scraper job failed' } }];\n}\nconst text = String($input.first().json.data || '');\n\nfunction parseCsv(t) {\n  const rows = []; let row = []; let f = ''; let q = false;\n  for (let i = 0; i < t.length; i++) {\n    const c = t[i];\n    if (q) {\n      if (c === '\"') { if (t[i + 1] === '\"') { f += '\"'; i++; } else q = false; }\n      else f += c;\n    } else if (c === '\"') q = true;\n    else if (c === ',') { row.push(f); f = ''; }\n    else if (c === '\\n') { row.push(f); rows.push(row); row = []; f = ''; }\n    else if (c !== '\\r') f += c;\n  }\n  if (f.length || row.length) { row.push(f); rows.push(row); }\n  return rows;\n}\nconst rows = parseCsv(text);\nconst head = rows.shift() || [];\nconst col = (r, k) => r[head.indexOf(k)] ?? '';\nconst num = (v) => { const n = Number(String(v).replace(/,/g, '')); return Number.isFinite(n) ? n : null; };\nconst json = (v) => { try { return JSON.parse(v); } catch { return null; } };\n\nconst F = p.filters || {};\nconst seen = new Set();\nconst titleCount = {};\nconst places = rows.filter((r) => r.length > 3).map((r) => {\n  const addr = json(col(r, 'complete_address')) || {};\n  return {\n    name: col(r, 'title').trim(),\n    website: col(r, 'website').trim() || null,\n    phone: col(r, 'phone').trim() || null,\n    address: col(r, 'address').trim() || null,\n    city: addr.city || null,\n    country: p.country,\n    category: col(r, 'category').trim() || null,\n    rating: num(col(r, 'review_rating')),\n    reviewCount: num(col(r, 'review_count')),\n    lat: num(col(r, 'latitude')),\n    lng: num(col(r, 'longitude')),\n    placeId: col(r, 'place_id').trim() || null,\n  };\n}).filter((x) => x.name);\nfor (const x of places) titleCount[x.name.toLowerCase()] = (titleCount[x.name.toLowerCase()] || 0) + 1;\n\nconst records = places.filter((x) => {\n  const key = x.placeId || `${x.name}|${x.address}`;\n  if (seen.has(key)) return false; seen.add(key);\n  if (F.hasWebsite === true && !x.website) return false;\n  if (F.hasWebsite === false && x.website) return false;\n  if (F.minRating != null && (x.rating ?? 0) < F.minRating) return false;\n  if (F.maxRating != null && x.rating != null && x.rating > F.maxRating) return false;\n  if (F.minReviews != null && (x.reviewCount ?? 0) < F.minReviews) return false;\n  // Same business name 3+ times in one job ≈ a chain.\n  if (F.excludeChains !== false && titleCount[x.name.toLowerCase()] >= 3) return false;\n  return true;\n}).slice(0, p.maxResults);\n\nif (!records.length) return [{ json: { skip: true, found: places.length } }];\nconst out = [];\nfor (let i = 0; i < records.length; i += 50) {\n  out.push({ json: {\n    found: places.length,\n    method: 'POST', path: '/internal/leads/batch',\n    idempotencyKey: `${p.scrapeJobId}-batch-${i / 50}`,\n    body: { workspaceId: p.workspaceId, source: 'maps', reference: p.scrapeJobId,\n            records: records.slice(i, i + 50) },\n  } });\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "has-records",
+      "name": "Has records?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        -200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ !$json.skip }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ingest-batch",
+      "name": "Ingest batch",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        2860,
+        -300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "KlyroApiSigner01",
+          "mode": "id"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "summarise",
+      "name": "Summarise",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3080,
+        -200
+      ],
+      "parameters": {
+        "jsCode": "// Final progress report for the admin UI.\nconst p = $('Verify & plan').first().json;\nconst parsed = $('Parse & chunk').all().map((i) => i.json);\nconst first = parsed[0] || {};\nlet ingested = 0;\nfor (const it of $input.all()) ingested += Number(it.json?.data?.created ?? 0);\nconst failed = Boolean(first.failed);\nreturn [{ json: { method: 'POST', path: '/internal/scrape/progress',\n  idempotencyKey: `${p.scrapeJobId}-done`,\n  body: { workspaceId: p.workspaceId, scrapeJobId: p.scrapeJobId,\n          status: failed ? 'failed' : 'enriched',\n          found: Number(first.found || 0), ingested,\n          ...(failed ? { error: first.error } : {}) } } }];"
+      }
+    },
+    {
+      "id": "report-done",
+      "name": "Report done",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        3300,
+        -200
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "KlyroApiSigner01",
+          "mode": "id"
+        },
+        "options": {}
+      }
     }
   ],
   "connections": {
-    "Manual/Webhook Trigger": { "main": [[{ "node": "Submit scrape job", "type": "main", "index": 0 }]] },
-    "Submit scrape job": { "main": [[{ "node": "Wait for scrape", "type": "main", "index": 0 }]] },
-    "Wait for scrape": { "main": [[{ "node": "Fetch results", "type": "main", "index": 0 }]] },
-    "Fetch results": { "main": [[{ "node": "Map & chunk", "type": "main", "index": 0 }]] },
-    "Map & chunk": { "main": [[{ "node": "Ingest via Klyro API", "type": "main", "index": 0 }]] }
+    "Scrape start": {
+      "main": [
+        [
+          {
+            "node": "Verify & plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify & plan": {
+      "main": [
+        [
+          {
+            "node": "Build running update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build running update": {
+      "main": [
+        [
+          {
+            "node": "Mark running",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark running": {
+      "main": [
+        [
+          {
+            "node": "Has queries?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has queries?": {
+      "main": [
+        [
+          {
+            "node": "Submit to scraper",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Submit to scraper": {
+      "main": [
+        [
+          {
+            "node": "Wait 30s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 30s": {
+      "main": [
+        [
+          {
+            "node": "Check status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check status": {
+      "main": [
+        [
+          {
+            "node": "Done?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Done?": {
+      "main": [
+        [
+          {
+            "node": "Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finished?": {
+      "main": [
+        [
+          {
+            "node": "Download CSV",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 30s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download CSV": {
+      "main": [
+        [
+          {
+            "node": "Parse & chunk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & chunk": {
+      "main": [
+        [
+          {
+            "node": "Has records?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has records?": {
+      "main": [
+        [
+          {
+            "node": "Ingest batch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summarise",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ingest batch": {
+      "main": [
+        [
+          {
+            "node": "Summarise",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise": {
+      "main": [
+        [
+          {
+            "node": "Report done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": {}
+  "meta": {
+    "notes": "Triggered by the API (POST /webhook/scrape-start, HMAC-signed) when an admin starts a scrape job. Scraper: self-hosted gosom at $env.SCRAPER_BASE. n8n never touches the DB; all writes go through the Klyro API signer."
+  }
 }

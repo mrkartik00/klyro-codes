@@ -64,6 +64,26 @@ export async function importLeadsCsv({ workspaceId, csv, createdBy }) {
   return { received: records.length, created, leadIds };
 }
 
+const COUNTRY_NAMES = { US: 'USA', GB: 'UK', UK: 'UK' };
+
+/**
+ * Google Maps search strings for a target: every (category|keyword) × city,
+ * e.g. "dentist in Austin, USA". Capped so one job can't run for hours.
+ */
+export function buildScrapeQueries(target, max = 40) {
+  if (!target) return [];
+  const terms = [...new Set([...(target.categories ?? []), ...(target.keywords ?? [])].map((s) => s.trim()).filter(Boolean))];
+  const cities = [...new Set((target.cities ?? []).map((s) => s.trim()).filter(Boolean))];
+  const country = COUNTRY_NAMES[target.country?.toUpperCase()] ?? target.country ?? '';
+  const where = (city) => [city, country].filter(Boolean).join(', ');
+  const out = [];
+  for (const term of terms) {
+    if (!cities.length) out.push(country ? `${term} in ${country}` : term);
+    for (const city of cities) out.push(`${term} in ${where(city)}`);
+  }
+  return out.slice(0, max);
+}
+
 /** E35 — start a scrape job for a target and trigger the n8n workflow. */
 export async function startScrapeJob({ workspaceId, scrapeTargetId, createdBy }) {
   const job = await withTransaction(async (session) => {
@@ -80,11 +100,17 @@ export async function startScrapeJob({ workspaceId, scrapeTargetId, createdBy })
     return j;
   });
 
-  // Fire the n8n workflow (outside the txn; external call).
+  // Fire the n8n workflow (outside the txn; external call). n8n gets everything
+  // it needs to run the scrape, so it never reads the database itself.
+  const target = await ScrapeTarget.findOne({ workspaceId, _id: scrapeTargetId }).lean();
   await triggerWorkflow('scrape-start', {
     workspaceId: String(workspaceId),
     scrapeJobId: String(job._id),
     scrapeTargetId: String(scrapeTargetId),
+    queries: buildScrapeQueries(target),
+    country: target?.country,
+    maxResults: target?.maxResults ?? 200,
+    filters: target?.filters ?? {},
   }).catch(() => {});
 
   return job;

@@ -1,18 +1,35 @@
 {
+  "id": "KlyroH4Reply0001",
   "name": "H4 — Reply watcher → classify → Klyro API",
-  "meta": { "description": "Gmail trigger per mailbox (label klyro/replies, -from:me). Strips quoted history, sends the clean reply text to /internal/replies which classifies via Gemini and stops the enrollment / advances the deal. Map the Gmail thread to an enrollmentId via a lookup you maintain, or pass threadId and let the API match. Requires Gmail OAuth credential." },
+  "meta": {
+    "description": "Gmail trigger per mailbox (label klyro/replies, -from:me). Strips quoted history, sends the clean reply text to /internal/replies which classifies via Gemini and stops the enrollment / advances the deal. Map the Gmail thread to an enrollmentId via a lookup you maintain, or pass threadId and let the API match. Requires Gmail OAuth credential."
+  },
   "nodes": [
     {
       "parameters": {
-        "pollTimes": { "item": [{ "mode": "everyMinute" }] },
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
         "simple": false,
-        "filters": { "labelIds": ["Label_klyro_replies"], "q": "-from:me" }
+        "filters": {
+          "labelIds": [
+            "Label_klyro_replies"
+          ],
+          "q": "-from:me"
+        }
       },
       "id": "gmailTrigger",
       "name": "Gmail Trigger (replies)",
       "type": "n8n-nodes-base.gmailTrigger",
       "typeVersion": 1.2,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
@@ -23,20 +40,56 @@
       "name": "Strip quotes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [220, 0]
+      "position": [
+        220,
+        0
+      ]
     },
     {
-      "parameters": { "workflowId": "00-klyro-api-signer", "options": {} },
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "KlyroApiSigner01",
+          "mode": "id"
+        },
+        "options": {},
+        "source": "database"
+      },
       "id": "post",
       "name": "Post reply to Klyro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [440, 0]
+      "position": [
+        440,
+        0
+      ]
     }
   ],
   "connections": {
-    "Gmail Trigger (replies)": { "main": [[{ "node": "Strip quotes", "type": "main", "index": 0 }]] },
-    "Strip quotes": { "main": [[{ "node": "Post reply to Klyro", "type": "main", "index": 0 }]] }
+    "Gmail Trigger (replies)": {
+      "main": [
+        [
+          {
+            "node": "Strip quotes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strip quotes": {
+      "main": [
+        [
+          {
+            "node": "Post reply to Klyro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": {}
+  "settings": {
+    "executionOrder": "v1"
+  }
 }
