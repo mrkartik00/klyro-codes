@@ -53,6 +53,20 @@ authRouter.post(
   asyncHandler(async (req, res) => ok(res, await auth.resetPassword(req.body))),
 );
 
+// F44 — magic-link login.
+authRouter.post(
+  '/magic-link',
+  authLimiter,
+  validateBody(z.object({ email: emailSchema })),
+  asyncHandler(async (req, res) => ok(res, await auth.requestMagicLink(req.body))),
+);
+authRouter.post(
+  '/magic-link/verify',
+  authLimiter,
+  validateBody(z.object({ email: emailSchema, token: z.string() })),
+  asyncHandler(async (req, res) => ok(res, await auth.loginWithMagicLink({ ...req.body, ...ctx(req) }))),
+);
+
 authRouter.post(
   '/2fa/setup',
   requireAuth,

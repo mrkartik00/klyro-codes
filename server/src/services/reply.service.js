@@ -2,10 +2,13 @@ import { Enrollment } from '../models/Enrollment.js';
 import { Message } from '../models/Message.js';
 import { Lead } from '../models/Lead.js';
 import { Deal } from '../models/Deal.js';
+import { Contact } from '../models/Contact.js';
+import { Organization } from '../models/Organization.js';
 import { withTransaction } from '../utils/transaction.js';
 import { writeAudit } from './audit.service.js';
 import { suppress } from './suppression.service.js';
 import { transition } from './transition.service.js';
+import { recordEvent } from './analytics.service.js';
 import { canTransition } from '../utils/stateMachine.js';
 
 // How each reply class affects the pipeline.
@@ -75,12 +78,16 @@ export async function handleReply({
       const lead = await Lead.findOne({ workspaceId, _id: enrollment.leadId }).session(session);
       let deal = await Deal.findOne({ workspaceId, leadId: enrollment.leadId }).session(session);
       if (!deal) {
+        // A28 — title the deal after the business, not the raw ObjectId.
+        const org = lead?.organizationId
+          ? await Organization.findOne({ workspaceId, _id: lead.organizationId }).session(session)
+          : null;
         [deal] = await Deal.create(
           [
             {
               workspaceId,
               createdBy: actorId,
-              title: `Lead ${enrollment.leadId}`,
+              title: org?.name || 'New deal',
               leadId: enrollment.leadId,
               contactId: enrollment.contactId,
               stage: 'new',
@@ -108,6 +115,12 @@ export async function handleReply({
       dealId = deal._id;
     }
 
+    // A11 — analytics: every reply, plus a positive signal for the funnel.
+    await recordEvent({ workspaceId, type: 'replied', channel: 'email', leadId: enrollment.leadId }, session);
+    if (POSITIVE.has(replyClass)) {
+      await recordEvent({ workspaceId, type: 'positive', channel: 'email', leadId: enrollment.leadId }, session);
+    }
+
     await writeAudit(
       {
         workspaceId,
@@ -122,5 +135,30 @@ export async function handleReply({
     );
 
     return { handled: true, replyClass, dealId, stopped: STOP.has(replyClass) };
+  });
+}
+
+/**
+ * A7 — unsubscribe a contact: suppress the email and stop ALL their active
+ * enrollments across campaigns, atomically. Idempotent.
+ */
+export async function unsubscribeContact({ workspaceId, email }) {
+  const norm = String(email).toLowerCase();
+  return withTransaction(async (session) => {
+    await suppress({ workspaceId, type: 'email', value: norm, reason: 'unsubscribe' }, session);
+    const contacts = await Contact.find({ workspaceId, email: norm }).session(session);
+    const contactIds = contacts.map((c) => c._id);
+    if (contactIds.length) {
+      await Enrollment.updateMany(
+        { workspaceId, contactId: { $in: contactIds }, status: 'active' },
+        { $set: { status: 'stopped', nextDueAt: null } },
+        { session },
+      );
+    }
+    await writeAudit(
+      { workspaceId, action: 'contact.unsubscribe', entity: 'contact', meta: { email: norm, contacts: contactIds.length } },
+      session,
+    );
+    return { unsubscribed: true, contacts: contactIds.length };
   });
 }

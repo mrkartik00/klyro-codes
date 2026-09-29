@@ -1,11 +1,14 @@
 import { Enrollment } from '../models/Enrollment.js';
 import { Lead } from '../models/Lead.js';
 import { Contact } from '../models/Contact.js';
+import { Organization } from '../models/Organization.js';
+import { PitchPage } from '../models/PitchPage.js';
 import { SequenceStep } from '../models/Campaign.js';
 import { withTransaction } from '../utils/transaction.js';
 import { writeAudit } from './audit.service.js';
 import { isSuppressed } from './suppression.service.js';
 import { addBusinessDays } from '../utils/timezone.js';
+import crypto from 'node:crypto';
 
 /** Reasons a lead can't be enrolled. Returns null if eligible. */
 export async function ineligibleReason({ workspaceId, campaignId, lead }, session) {
@@ -61,6 +64,29 @@ export async function enrollLeads({ workspaceId, campaignId, leadIds, timezoneDe
       );
       lead.stage = 'enrolled';
       await lead.save({ session });
+
+      // F42 — create a pitch page for the lead at enrollment (idempotent).
+      const existingPitch = await PitchPage.findOne({ workspaceId, leadId }).session(session);
+      if (!existingPitch) {
+        const org = lead.organizationId
+          ? await Organization.findOne({ workspaceId, _id: lead.organizationId }).session(session)
+          : null;
+        const base = (org?.name ?? 'pitch').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+        await PitchPage.create(
+          [
+            {
+              workspaceId,
+              createdBy,
+              leadId,
+              slug: `${base}-${crypto.randomBytes(3).toString('hex')}`,
+              token: crypto.randomBytes(16).toString('hex'),
+              businessName: org?.name,
+              sections: [],
+            },
+          ],
+          { session, ordered: true },
+        );
+      }
       outcomes.push({ leadId, enrolled: true, enrollmentId: enr._id, nextDueAt });
     }
 

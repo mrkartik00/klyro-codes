@@ -12,23 +12,32 @@ export async function evaluateMailboxHealth({ workspaceId }) {
   const mailboxes = await Mailbox.find({ workspaceId, status: { $ne: 'paused' } });
   const paused = [];
   for (const mb of mailboxes) {
+    // A9 — apply the warmup ramp so dailyCap grows automatically by day.
+    if (mb.status === 'warming' && mb.warmupStartedAt) {
+      const cap = warmupCap(mb.warmupStartedAt);
+      if (cap !== mb.dailyCap) mb.dailyCap = cap;
+      // Graduate to active once the ramp reaches its ceiling.
+      if (cap >= WARMUP_RAMP[WARMUP_RAMP.length - 1]) mb.status = 'active';
+    }
+
     const sent = await Message.countDocuments({
       workspaceId,
       mailboxId: mb._id,
       direction: 'outbound',
       sentAt: { $gte: since },
     });
-    if (sent < 20) continue; // not enough volume to judge
-    const bounced = await Message.countDocuments({
-      workspaceId,
-      mailboxId: mb._id,
-      status: 'bounced',
-      sentAt: { $gte: since },
-    });
-    mb.bounceRate = bounced / sent;
-    if (mb.bounceRate > MAILBOX_LIMITS.maxBounceRate) {
-      mb.status = 'paused';
-      paused.push(mb.address);
+    if (sent >= 20) {
+      const bounced = await Message.countDocuments({
+        workspaceId,
+        mailboxId: mb._id,
+        status: 'bounced',
+        sentAt: { $gte: since },
+      });
+      mb.bounceRate = bounced / sent;
+      if (mb.bounceRate > MAILBOX_LIMITS.maxBounceRate) {
+        mb.status = 'paused';
+        paused.push(mb.address);
+      }
     }
     await mb.save();
   }

@@ -6,7 +6,7 @@ export default [
   { ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '.kiro/**', 'design-system/**'] },
   js.configs.recommended,
   {
-    files: ['server/**/*.{js,mjs}', 'shared/**/*.js', '{web,portal,admin}/scripts/**/*.{js,mjs}', '*.js'],
+    files: ['server/**/*.{js,mjs}', 'shared/**/*.js', '{web,portal,admin}/scripts/**/*.{js,mjs}', 'infra/**/*.{js,mjs}', '*.js'],
     languageOptions: { ecmaVersion: 2024, sourceType: 'module', globals: { ...globals.node } },
   },
   {

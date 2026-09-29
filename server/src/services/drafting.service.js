@@ -1,5 +1,6 @@
 import { generateJson } from '../integrations/gemini/index.js';
 import { draftPrompt, classifyPrompt } from '../integrations/gemini/prompts.js';
+import { minimiseForAi } from '../utils/pii.js';
 
 const SPAM_WORDS = ['free money', 'guarantee', 'act now', 'risk-free', 'winner', 'click here'];
 
@@ -40,7 +41,9 @@ export async function draftEmail({ business, audit, template, tone }) {
 }
 
 export async function classifyReply({ replyText }) {
-  const ai = await generateJson(classifyPrompt({ replyText }));
+  // B17 — strip quoted history, signature and PII before the model sees it.
+  const minimised = minimiseForAi(replyText ?? '');
+  const ai = await generateJson(classifyPrompt({ replyText: minimised }));
   const allowed = [
     'interested',
     'question',
@@ -53,6 +56,25 @@ export async function classifyReply({ replyText }) {
   ];
   if (!ai || !allowed.includes(ai.class) || (ai.confidence ?? 0) < 0.4) {
     return { class: 'needs_review', confidence: ai?.confidence ?? 0, suggestedReply: ai?.suggestedReply };
+  }
+  return ai;
+}
+
+/**
+ * F41 — qualify an inbound enquiry/project request. Returns a tier + summary.
+ * Falls back to a neutral 'review' tier if AI is unavailable. Only non-personal
+ * project details are sent to the model.
+ */
+export async function qualifyEnquiry({ message, budget, projectType }) {
+  const minimised = minimiseForAi(message ?? '', { maxLen: 800 });
+  const prompt = `Qualify this inbound web/app project enquiry for a dev studio. Return strict JSON:
+{"tier": one of ["hot","warm","cold","spam"], "summary": string (<=140 chars), "reasoning": string}
+Budget hint: ${budget ?? 'unknown'}. Project type: ${projectType ?? 'unknown'}.
+Enquiry: """${minimised}"""`;
+  const ai = await generateJson(prompt);
+  const tiers = ['hot', 'warm', 'cold', 'spam'];
+  if (!ai || !tiers.includes(ai.tier)) {
+    return { tier: 'warm', summary: (message ?? '').slice(0, 140), reasoning: 'fallback' };
   }
   return ai;
 }

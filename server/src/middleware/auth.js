@@ -9,7 +9,12 @@ export function requireAuth(req, _res, next) {
   if (!token) return next(ApiError.unauthorized('Missing token'));
   try {
     const payload = jwt.verify(token, env.JWT_ACCESS_SECRET);
-    req.auth = { userId: payload.sub, workspaceId: payload.workspaceId, role: payload.role };
+    req.auth = {
+      userId: payload.sub,
+      workspaceId: payload.workspaceId,
+      role: payload.role,
+      twoFactorEnabled: Boolean(payload.twoFactorEnabled),
+    };
     next();
   } catch {
     next(ApiError.unauthorized('Invalid or expired token'));

@@ -2,6 +2,7 @@ import { Approval } from '../models/Approval.js';
 import { Enrollment } from '../models/Enrollment.js';
 import { withTransaction } from '../utils/transaction.js';
 import { writeAudit } from './audit.service.js';
+import { emitToWorkspace } from '../socket/index.js';
 import { ApiError } from '../utils/ApiError.js';
 
 export async function createApproval({ workspaceId, enrollmentId, leadId, stepOrder, channel, draft, createdBy }) {
@@ -14,7 +15,7 @@ export async function createApproval({ workspaceId, enrollmentId, leadId, stepOr
 
 /** Approve or reject a draft. Idempotent: re-deciding returns the current state. */
 export async function decideApproval({ workspaceId, approvalId, decision, editedDraft, actorId }) {
-  return withTransaction(async (session) => {
+  const result = await withTransaction(async (session) => {
     const approval = await Approval.findOne({ workspaceId, _id: approvalId }).session(session);
     if (!approval) throw ApiError.notFound('Approval not found');
     if (approval.status !== 'pending') {
@@ -39,8 +40,11 @@ export async function decideApproval({ workspaceId, approvalId, decision, edited
       },
       session,
     );
-    return { status: approval.status };
+    return { status: approval.status, approvalId: approval._id };
   });
+  // D31 — live update to the admin UI (after commit, never on rollback).
+  emitToWorkspace(workspaceId, 'approval:decided', { approvalId, status: result.status });
+  return result;
 }
 
 export async function pendingCount({ workspaceId }) {

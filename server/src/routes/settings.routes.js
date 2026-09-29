@@ -8,6 +8,11 @@ import { PortfolioItem } from '../models/PortfolioItem.js';
 import { Setting } from '../models/Setting.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { ScrapeTarget } from '../models/ScrapeTarget.js';
+import { ScrapeJob } from '../models/ScrapeTarget.js';
+import { Organization } from '../models/Organization.js';
+import { Enrollment } from '../models/Enrollment.js';
+import { startScrapeJob, importLeadsCsv } from '../services/scrape.service.js';
+import { listWorkflows, setWorkflowActive, listExecutions, triggerWorkflow } from '../integrations/n8n/index.js';
 import { encrypt } from '../utils/crypto.js';
 import { writeAudit } from '../services/audit.service.js';
 import { withTransaction } from '../utils/transaction.js';
@@ -75,6 +80,81 @@ scrapeRouter.post(
     }),
   ),
   asyncHandler(async (req, res) => created(res, await ScrapeTarget.create({ ...scope(req), ...req.body }))),
+);
+
+// E35 — start a scrape run + list jobs.
+scrapeRouter.post(
+  '/targets/:id/run',
+  asyncHandler(async (req, res) =>
+    created(res, await startScrapeJob({ workspaceId: req.workspaceId, scrapeTargetId: req.params.id, createdBy: req.auth.userId })),
+  ),
+);
+scrapeRouter.get(
+  '/jobs',
+  asyncHandler(async (req, res) => {
+    const result = await listScoped(ScrapeJob, { workspaceId: req.workspaceId, query: req.query, sort: { createdAt: -1 } });
+    return ok(res, result.items, result.meta);
+  }),
+);
+
+// E38 — CSV lead import (raw CSV text in the body).
+scrapeRouter.post(
+  '/import-csv',
+  validateBody(z.object({ csv: z.string().min(1) })),
+  asyncHandler(async (req, res) =>
+    ok(res, await importLeadsCsv({ workspaceId: req.workspaceId, csv: req.body.csv, createdBy: req.auth.userId })),
+  ),
+);
+
+/* ---- E39: Organizations ---- */
+export const organizationsRouter = Router();
+organizationsRouter.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    const result = await listScoped(Organization, { workspaceId: req.workspaceId, query: req.query, sort: { createdAt: -1 } });
+    return ok(res, result.items, result.meta);
+  }),
+);
+organizationsRouter.get(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    const org = await Organization.findOne({ workspaceId: req.workspaceId, _id: req.params.id });
+    if (!org) throw ApiError.notFound('Organization not found');
+    return ok(res, org);
+  }),
+);
+
+/* ---- E39: Enrollments (list) ---- */
+export const enrollmentsRouter = Router();
+enrollmentsRouter.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    const filter = {};
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.campaignId) filter.campaignId = req.query.campaignId;
+    const result = await listScoped(Enrollment, { workspaceId: req.workspaceId, query: req.query, filter, sort: { updatedAt: -1 } });
+    return ok(res, result.items, result.meta);
+  }),
+);
+
+/* ---- E39: Automation panel (n8n proxy) ---- */
+export const automationRouter = Router();
+automationRouter.get(
+  '/workflows',
+  asyncHandler(async (_req, res) => ok(res, await listWorkflows())),
+);
+automationRouter.post(
+  '/workflows/:id/active',
+  validateBody(z.object({ active: z.boolean() })),
+  asyncHandler(async (req, res) => ok(res, await setWorkflowActive(req.params.id, req.body.active))),
+);
+automationRouter.get(
+  '/executions',
+  asyncHandler(async (req, res) => ok(res, await listExecutions(req.query.workflowId))),
+);
+automationRouter.post(
+  '/trigger/:path',
+  asyncHandler(async (req, res) => ok(res, await triggerWorkflow(req.params.path, req.body ?? {}))),
 );
 
 /* ---- Settings (secrets encrypted, never returned raw) ---- */

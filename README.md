@@ -17,7 +17,7 @@ See `IMPLEMENTATION_PLAN.md` for the full plan and `n8n/README.md` for automatio
 ## Develop
 
 ```bash
-nvm use            # Node 24
+nvm use            # Node 20 (matches the VPS)
 npm install
 cp .env.example server/.env   # fill in values
 npm test           # all workspaces

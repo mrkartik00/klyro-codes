@@ -1,9 +1,16 @@
 import { Event } from '../models/Event.js';
 import { MetricDaily } from '../models/MetricDaily.js';
 
-/** Record an analytics event (append-only). Safe to call outside a txn. */
-export async function recordEvent({ workspaceId, type, channel = 'email', campaignId, mailboxId, leadId, city, category, valueMinor, currency }) {
-  return Event.create({ workspaceId, type, channel, campaignId, mailboxId, leadId, city, category, valueMinor, currency });
+/** Record an analytics event (append-only). Session-aware so it can join a txn. */
+export async function recordEvent(
+  { workspaceId, type, channel = 'email', campaignId, mailboxId, leadId, city, category, valueMinor, currency },
+  session,
+) {
+  const [doc] = await Event.create(
+    [{ workspaceId, type, channel, campaignId, mailboxId, leadId, city, category, valueMinor, currency, at: new Date() }],
+    session ? { session, ordered: true } : {},
+  );
+  return doc;
 }
 
 const FUNNEL = ['sent', 'delivered', 'opened', 'clicked', 'replied', 'positive', 'meeting', 'won'];

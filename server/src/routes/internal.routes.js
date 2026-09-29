@@ -10,6 +10,9 @@ import { applyEnrichment } from '../services/enrichment.service.js';
 import { claimSend, recordSendResult } from '../services/send.service.js';
 import { handleReply } from '../services/reply.service.js';
 import { classifyReply } from '../services/drafting.service.js';
+import { dueSteps, draftStep, handleBounce } from '../services/pipeline.service.js';
+import { updateScrapeProgress } from '../services/scrape.service.js';
+import { sendTelegram } from '../integrations/telegram/index.js';
 
 export const internalRouter = Router();
 internalRouter.use(internalAuth);
@@ -52,6 +55,76 @@ internalRouter.post(
   '/sends/claim',
   validateBody(z.object({ workspaceId: wsId, enrollmentId: z.string(), stepOrder: z.number().int() })),
   asyncHandler(async (req, res) => ok(res, await claimSend(req.body))),
+);
+
+// A2 — steps due for drafting/sending. n8n polls this on a schedule.
+internalRouter.get(
+  '/steps/due',
+  asyncHandler(async (req, res) => {
+    const workspaceId = req.query.workspaceId;
+    if (!workspaceId) return ok(res, []);
+    return ok(res, await dueSteps({ workspaceId, limit: Number(req.query.limit) || 50 }));
+  }),
+);
+
+// A3 — draft a step and create a pending approval.
+internalRouter.post(
+  '/approvals',
+  idempotency('internal:approvals'),
+  validateBody(
+    z.object({
+      workspaceId: wsId,
+      enrollmentId: z.string(),
+      stepOrder: z.number().int(),
+      tone: z.string().optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => ok(res, await draftStep(req.body))),
+);
+
+// A5 — bounce/DSN handling.
+internalRouter.post(
+  '/bounces',
+  idempotency('internal:bounces'),
+  validateBody(
+    z.object({
+      workspaceId: wsId,
+      providerMessageId: z.string().optional(),
+      headerToken: z.string().optional(),
+      contactEmail: z.string().optional(),
+      dsnText: z.string().optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => ok(res, await handleBounce(req.body))),
+);
+
+// A6 — alerts relay for n8n (Telegram).
+internalRouter.post(
+  '/alerts',
+  validateBody(
+    z.object({
+      workspaceId: wsId.optional(),
+      text: z.string().min(1).max(2000),
+      buttons: z.array(z.object({ text: z.string(), data: z.string() })).optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => ok(res, await sendTelegram(req.body.text, { buttons: req.body.buttons }))),
+);
+
+// E35 — scrape job progress from n8n.
+internalRouter.post(
+  '/scrape/progress',
+  validateBody(
+    z.object({
+      workspaceId: wsId,
+      scrapeJobId: z.string(),
+      status: z.enum(['queued', 'running', 'ingesting', 'enriched', 'failed']).optional(),
+      found: z.number().int().optional(),
+      ingested: z.number().int().optional(),
+      error: z.string().optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => ok(res, await updateScrapeProgress(req.body))),
 );
 
 internalRouter.post(

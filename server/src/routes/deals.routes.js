@@ -8,6 +8,7 @@ import { Deal } from '../models/Deal.js';
 import { Quotation } from '../models/Quotation.js';
 import { moveDeal } from '../services/deal.service.js';
 import { createQuotation, setQuotationStatus, reviseQuotation } from '../services/quotation.service.js';
+import { sendQuotation } from '../services/billing.service.js';
 import { ApiError } from '../utils/ApiError.js';
 
 export const dealsRouter = Router();
@@ -38,6 +39,21 @@ dealsRouter.post(
   asyncHandler(async (req, res) =>
     ok(res, await moveDeal({ workspaceId: req.workspaceId, dealId: req.params.id, to: req.body.to, lostReason: req.body.lostReason, actorId: req.auth.userId })),
   ),
+);
+
+// Link a portal client to this deal so they can view/accept its quotations.
+dealsRouter.post(
+  '/:id/assign-client',
+  validateBody(z.object({ clientUserId: z.string() })),
+  asyncHandler(async (req, res) => {
+    const deal = await Deal.findOneAndUpdate(
+      { workspaceId: req.workspaceId, _id: req.params.id },
+      { $set: { clientUserId: req.body.clientUserId } },
+      { new: true },
+    );
+    if (!deal) throw ApiError.notFound('Deal not found');
+    return ok(res, deal);
+  }),
 );
 
 /* ---- Quotations under a deal ---- */
@@ -77,6 +93,13 @@ quotationsRouter.post(
   validateBody(z.object({ to: z.enum(['sent', 'accepted', 'rejected', 'expired', 'superseded']) })),
   asyncHandler(async (req, res) =>
     ok(res, await setQuotationStatus({ workspaceId: req.workspaceId, quotationId: req.params.id, to: req.body.to, actorId: req.auth.userId })),
+  ),
+);
+// C20 — render PDF, mark sent, email the client a view link.
+quotationsRouter.post(
+  '/:id/send',
+  asyncHandler(async (req, res) =>
+    ok(res, await sendQuotation({ workspaceId: req.workspaceId, quotationId: req.params.id, actorId: req.auth.userId })),
   ),
 );
 quotationsRouter.post(

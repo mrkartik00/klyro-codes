@@ -19,9 +19,16 @@ const organizationSchema = new mongoose.Schema({
   companyType: { type: String, enum: COMPANY_TYPES, default: 'unknown' },
 });
 organizationSchema.plugin(basePlugin, { softDelete: true });
-// Sparse unique per workspace so dedupe keys don't collide across tenants.
-organizationSchema.index({ workspaceId: 1, placeId: 1 }, { unique: true, sparse: true });
-organizationSchema.index({ workspaceId: 1, domain: 1 }, { unique: true, sparse: true });
+// Unique per workspace only when the key is actually present (a real string),
+// so many orgs without a placeId/domain don't collide on null.
+organizationSchema.index(
+  { workspaceId: 1, placeId: 1 },
+  { unique: true, partialFilterExpression: { placeId: { $type: 'string' } } },
+);
+organizationSchema.index(
+  { workspaceId: 1, domain: 1 },
+  { unique: true, partialFilterExpression: { domain: { $type: 'string' } } },
+);
 organizationSchema.index({ workspaceId: 1, phone: 1 }, { sparse: true });
 
 export const Organization = mongoose.model('Organization', organizationSchema);

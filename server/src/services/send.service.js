@@ -3,9 +3,16 @@ import { Mailbox } from '../models/Mailbox.js';
 import { Message } from '../models/Message.js';
 import { Enrollment } from '../models/Enrollment.js';
 import { Contact } from '../models/Contact.js';
+import { Lead } from '../models/Lead.js';
+import { Organization } from '../models/Organization.js';
+import { Campaign, SequenceStep } from '../models/Campaign.js';
 import { withTransaction } from '../utils/transaction.js';
 import { isSuppressed } from './suppression.service.js';
+import { isWithinSendWindow, addBusinessDays } from '../utils/timezone.js';
+import { recordEvent } from './analytics.service.js';
 import { ApiError } from '../utils/ApiError.js';
+
+const INCORPORATED = new Set(['ltd', 'llp', 'plc']);
 
 /**
  * Atomically reserve a send slot on an available mailbox.
@@ -39,6 +46,21 @@ export async function claimSend({ workspaceId, enrollmentId, stepOrder }) {
     if (!contact?.email) return { claimed: false, reason: 'no_email' };
     if (await isSuppressed({ workspaceId, email: contact.email, phone: contact.phone }, session)) {
       return { claimed: false, reason: 'suppressed' };
+    }
+
+    // Lead-derived checks: local send window + UK incorporated-only (PECR).
+    const lead = await Lead.findOne({ workspaceId, _id: enrollment.leadId }).session(session);
+    const tz = lead?.timezone || 'UTC';
+    const campaign = await Campaign.findOne({ workspaceId, _id: enrollment.campaignId }).session(session);
+    const window = campaign?.sendWindow ?? { startHour: 9, endHour: 17, businessDaysOnly: true };
+    if (!isWithinSendWindow(new Date(), window, tz)) {
+      return { claimed: false, reason: 'outside_send_window' };
+    }
+    if (lead?.organizationId) {
+      const org = await Organization.findOne({ workspaceId, _id: lead.organizationId }).session(session);
+      if (org?.country === 'GB' && !INCORPORATED.has(org.companyType)) {
+        return { claimed: false, reason: 'uk_not_incorporated' };
+      }
     }
 
     const mailbox = await Mailbox.findOneAndUpdate(
@@ -112,8 +134,30 @@ export async function recordSendResult({
       if (enrollment && enrollment.status === 'active') {
         enrollment.threadId ??= threadId ?? null;
         enrollment.lastMessageId = providerMessageId ?? enrollment.lastMessageId;
+        // Advance to the next sequence step. If there is a next step, schedule
+        // nextDueAt in the lead's timezone by that step's business-day delay;
+        // otherwise the sequence is complete.
+        enrollment.currentStep = message.stepOrder + 1;
+        const nextStep = await SequenceStep.findOne({
+          workspaceId,
+          campaignId: enrollment.campaignId,
+          order: enrollment.currentStep,
+        }).session(session);
+        if (nextStep) {
+          const lead = await Lead.findOne({ workspaceId, _id: enrollment.leadId }).session(session);
+          const tz = lead?.timezone || 'UTC';
+          enrollment.nextDueAt = addBusinessDays(new Date(), nextStep.delayDays, tz);
+        } else {
+          enrollment.nextDueAt = null;
+          enrollment.status = 'completed';
+        }
         await enrollment.save({ session });
       }
+      // Record a 'sent' analytics event in the same txn.
+      await recordEvent(
+        { workspaceId, type: 'sent', channel: 'email', mailboxId: message.mailboxId, leadId: message.leadId },
+        session,
+      );
       // On send failure we do NOT refund sentToday: the attempt still touched
       // the provider and counts toward reputation budget.
     }

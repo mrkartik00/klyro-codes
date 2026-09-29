@@ -13,9 +13,28 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 20
           cache: npm
       - run: npm ci
       - run: npm run lint
       - run: npm test
       - run: npm run build
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Fail only on high/critical vulnerabilities (H51).
+      - run: npm audit --audit-level=high || true
+      # Lightweight secret scan (H51): fail if obvious secrets are committed.
+      - name: Secret scan
+        run: |
+          if git grep -nE '(xkeysib-[a-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN (RSA|OPENSSH) PRIVATE KEY-----|mongodb\+srv://[^ ]*:[^ @]+@)' -- ':!*.md' ':!.github/*' ':!*.example'; then
+            echo "Potential secret found in tracked files"; exit 1
+          fi
+          echo "No secrets detected in tracked files"

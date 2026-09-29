@@ -22,3 +22,14 @@ export async function sendTelegram(text, { buttons, chatId = env.TELEGRAM_CHAT_I
   if (!res.ok) logger.error({ status: res.status }, 'Telegram send failed');
   return res.json().catch(() => ({}));
 }
+
+/** Answer an inline-button callback so the loading spinner clears in Telegram. */
+export async function answerCallback(callbackQueryId, text) {
+  if (!env.TELEGRAM_BOT_TOKEN) return { skipped: true };
+  const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
+  });
+  return res.json().catch(() => ({}));
+}

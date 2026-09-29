@@ -3,7 +3,11 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { ok } from '../utils/apiResponse.js';
 import { verifyWebhook } from '../integrations/razorpay/index.js';
 import { recordPayment } from '../services/payment.service.js';
+import { decideApproval } from '../services/approval.service.js';
+import { answerCallback } from '../integrations/telegram/index.js';
 import { Invoice } from '../models/Invoice.js';
+import { Approval } from '../models/Approval.js';
+import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 
 export const webhooksRouter = Router();
@@ -31,6 +35,36 @@ webhooksRouter.post(
         });
       } else {
         logger.warn({ orderId: entity.order_id }, 'Razorpay webhook: invoice not found');
+      }
+    }
+    return ok(res, { received: true });
+  }),
+);
+
+// D34 — Telegram webhook: handle inline Approve/Reject buttons. Secured by a
+// path secret token (Telegram supports X-Telegram-Bot-Api-Secret-Token).
+webhooksRouter.post(
+  '/telegram',
+  asyncHandler(async (req, res) => {
+    if (env.TELEGRAM_WEBHOOK_SECRET) {
+      const got = req.get('x-telegram-bot-api-secret-token');
+      if (got !== env.TELEGRAM_WEBHOOK_SECRET) return res.status(401).json({ ok: false });
+    }
+    const cb = req.body?.callback_query;
+    if (cb?.data) {
+      // data format: "approve:<approvalId>" / "reject:<approvalId>"
+      const [action, approvalId] = String(cb.data).split(':');
+      if (['approve', 'reject'].includes(action) && approvalId) {
+        const appr = await Approval.findById(approvalId).lean();
+        if (appr) {
+          await decideApproval({
+            workspaceId: appr.workspaceId,
+            approvalId,
+            decision: action,
+            actorId: appr.createdBy,
+          }).catch((err) => logger.warn({ err }, 'telegram decide failed'));
+        }
+        await answerCallback(cb.id, `Draft ${action}d`).catch(() => {});
       }
     }
     return ok(res, { received: true });

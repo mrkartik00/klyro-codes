@@ -11,7 +11,7 @@ import { Session } from '../models/Session.js';
 import { withTransaction } from '../utils/transaction.js';
 import { ApiError } from '../utils/ApiError.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
-import { sendVerificationOtp, sendPasswordReset } from '../integrations/brevo/index.js';
+import { sendVerificationOtp, sendPasswordReset, sendTransactional } from '../integrations/brevo/index.js';
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const genOtp = () => String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
@@ -24,7 +24,12 @@ export async function hashPassword(pw) {
 
 function signAccess(user, membership) {
   return jwt.sign(
-    { sub: String(user._id), workspaceId: String(membership.workspaceId), role: membership.role },
+    {
+      sub: String(user._id),
+      workspaceId: String(membership.workspaceId),
+      role: membership.role,
+      twoFactorEnabled: Boolean(user.totpEnabledAt),
+    },
     env.JWT_ACCESS_SECRET,
     { expiresIn: env.ACCESS_TOKEN_TTL },
   );
@@ -220,4 +225,46 @@ export async function confirmTotp({ userId, token }) {
   user.totpEnabledAt = new Date();
   await user.save();
   return { enabled: true };
+}
+
+/**
+ * F44 — request a magic login link. Always returns success (no user
+ * enumeration). Emails a one-time link valid 15 minutes.
+ */
+export async function requestMagicLink({ email }) {
+  const user = await User.findOne({ email });
+  if (!user) return { requested: true };
+  const raw = crypto.randomBytes(32).toString('hex');
+  user.magicTokenHash = sha256(raw);
+  user.magicTokenExpires = new Date(Date.now() + 15 * 60 * 1000);
+  await user.save();
+  const link = `${env.PORTAL_ORIGIN}/magic?token=${raw}&email=${encodeURIComponent(email)}`;
+  await sendTransactional({
+    to: email,
+    subject: 'Your Klyro login link',
+    htmlContent: `<p>Click to sign in (valid 15 minutes): <a href="${link}">${link}</a></p>`,
+  }).catch(() => {});
+  return { requested: true };
+}
+
+/** F44 — consume a magic link and issue tokens (like login). */
+export async function loginWithMagicLink({ email, token, userAgent, ip }) {
+  const user = await User.findOne({ email }).select('+magicTokenHash +magicTokenExpires');
+  if (!user?.magicTokenHash || user.magicTokenExpires < new Date()) {
+    throw ApiError.badRequest('Invalid or expired link');
+  }
+  if (user.magicTokenHash !== sha256(token)) throw ApiError.badRequest('Invalid link');
+  user.magicTokenHash = null;
+  user.magicTokenExpires = null;
+  if (!user.emailVerifiedAt) user.emailVerifiedAt = new Date(); // link proves email ownership
+  await user.save();
+
+  const membership = await Membership.findOne({ userId: user._id, status: 'active' });
+  if (!membership) throw ApiError.forbidden('No active membership');
+  const refreshToken = await withTransaction((s) => issueRefresh(user, { userAgent, ip }, s));
+  return {
+    accessToken: signAccess(user, membership),
+    refreshToken,
+    user: { id: user._id, name: user.name, email: user.email, role: membership.role },
+  };
 }

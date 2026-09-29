@@ -22,15 +22,17 @@ const scrapeTargetSchema = new mongoose.Schema({
 scrapeTargetSchema.plugin(basePlugin, { softDelete: true });
 
 const scrapeJobSchema = new mongoose.Schema({
-  targetId: { type: mongoose.Schema.Types.ObjectId, ref: 'ScrapeTarget', index: true },
+  scrapeTargetId: { type: mongoose.Schema.Types.ObjectId, ref: 'ScrapeTarget', index: true },
   status: {
     type: String,
     enum: ['queued', 'running', 'ingesting', 'enriched', 'failed'],
     default: 'queued',
     index: true,
   },
+  requested: { type: Number, default: 0 },
   found: { type: Number, default: 0 },
   ingested: { type: Number, default: 0 },
+  progressPct: { type: Number, default: 0 },
   error: { type: String },
   startedAt: { type: Date },
   finishedAt: { type: Date },

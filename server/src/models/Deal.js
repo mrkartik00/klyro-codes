@@ -13,6 +13,8 @@ const dealSchema = new mongoose.Schema({
   },
   source: { type: String },
   ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  // Portal client who can view/accept this deal's quotations (set when shared).
+  clientUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   lostReason: { type: String },
 });
 dealSchema.plugin(basePlugin, { softDelete: true });

@@ -12,6 +12,9 @@ const userSchema = new mongoose.Schema({
   // Password reset token (hashed) + expiry.
   resetTokenHash: { type: String, default: null, select: false },
   resetTokenExpires: { type: Date, default: null, select: false },
+  // Magic-link login token (hashed) + expiry.
+  magicTokenHash: { type: String, default: null, select: false },
+  magicTokenExpires: { type: Date, default: null, select: false },
   // TOTP 2FA.
   totpSecret: { type: String, default: null, select: false }, // encrypted
   totpEnabledAt: { type: Date, default: null },
