@@ -39,6 +39,8 @@ jobs:
           ssh -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
             set -e
             cd /var/www/klyro
+            # Discard any working-tree drift (e.g. lockfile churn) before pulling.
+            git checkout -- . 2>/dev/null || true
             git pull --ff-only
             npm install --no-audit --no-fund
             VITE_API_URL=https://api.klyro.codes/api/v1 npm run build
