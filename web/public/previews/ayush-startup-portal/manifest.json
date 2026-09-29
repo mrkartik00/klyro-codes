@@ -1,0 +1,29 @@
+{
+  "host": "ayushstartup.aiia.gov.in",
+  "pages": [
+    {
+      "src": "/previews/ayush-startup-portal/0.webp",
+      "path": "/",
+      "width": 1280,
+      "height": 2831
+    },
+    {
+      "src": "/previews/ayush-startup-portal/1.webp",
+      "path": "/startups",
+      "width": 1280,
+      "height": 1137
+    },
+    {
+      "src": "/previews/ayush-startup-portal/2.webp",
+      "path": "/faqs",
+      "width": 1280,
+      "height": 1027
+    },
+    {
+      "src": "/previews/ayush-startup-portal/3.webp",
+      "path": "/about-us",
+      "width": 1280,
+      "height": 1877
+    }
+  ]
+}

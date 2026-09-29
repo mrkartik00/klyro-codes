@@ -1,0 +1,79 @@
+# n8n in queue mode: main + 2 workers, Postgres, Valkey (Redis-compatible).
+# Requires LXC nesting to be enabled by the VPS provider. If Docker is not
+# available, run n8n natively via PM2 (see infra/SERVER.md) with the same env.
+# Usage: docker compose -f infra/docker-compose.n8n.yml up -d
+name: klyro-n8n
+
+x-n8n-common: &n8n-common
+  image: n8nio/n8n:2.36.0
+  restart: unless-stopped
+  environment: &n8n-env
+    DB_TYPE: postgresdb
+    DB_POSTGRESDB_HOST: postgres
+    DB_POSTGRESDB_DATABASE: n8n
+    DB_POSTGRESDB_USER: n8n
+    DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD}
+    EXECUTIONS_MODE: queue
+    QUEUE_BULL_REDIS_HOST: valkey
+    QUEUE_BULL_REDIS_PORT: 6379
+    N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+    N8N_HOST: n8n.klyro.codes
+    N8N_PROTOCOL: https
+    WEBHOOK_URL: https://n8n.klyro.codes/
+    GENERIC_TIMEZONE: Asia/Kolkata
+    EXECUTIONS_DATA_PRUNE: "true"
+    EXECUTIONS_DATA_MAX_AGE: "168"
+    KLYRO_API_BASE: http://host.docker.internal:4100/api/v1
+    KLYRO_HMAC_SECRET: ${KLYRO_HMAC_SECRET}
+    KLYRO_WORKSPACE_ID: ${KLYRO_WORKSPACE_ID}
+  depends_on:
+    postgres: { condition: service_healthy }
+    valkey: { condition: service_started }
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: n8n
+      POSTGRES_USER: n8n
+      POSTGRES_PASSWORD: ${N8N_DB_PASSWORD}
+    volumes:
+      - n8n_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    volumes:
+      - n8n_valkey:/data
+
+  n8n-main:
+    <<: *n8n-common
+    ports:
+      - "127.0.0.1:5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  n8n-worker-1:
+    <<: *n8n-common
+    command: worker
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  n8n-worker-2:
+    <<: *n8n-common
+    command: worker
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+volumes:
+  n8n_pg:
+  n8n_valkey:
+  n8n_data:

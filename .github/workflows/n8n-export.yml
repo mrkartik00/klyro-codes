@@ -1,0 +1,38 @@
+name: Export n8n workflows
+
+# Nightly: pull the current workflows from the live n8n instance via its REST API
+# and commit any changes to n8n/workflows/, so the automation layer is versioned.
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch workflows from n8n
+        env:
+          N8N_URL: ${{ secrets.N8N_URL }}
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
+        run: |
+          set -e
+          mkdir -p n8n/workflows
+          curl -s -H "X-N8N-API-KEY: $N8N_API_KEY" "$N8N_URL/api/v1/workflows?limit=250" \
+            | node -e '
+              const data = JSON.parse(require("fs").readFileSync(0, "utf8")).data || [];
+              const fs = require("fs");
+              for (const w of data) {
+                const slug = w.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 60);
+                fs.writeFileSync(`n8n/workflows/${slug}.json`, JSON.stringify(w, null, 2) + "\n");
+              }
+              console.log(`exported ${data.length} workflows`);
+            '
+      - name: Commit changes
+        run: |
+          git config user.name "klyro-bot"
+          git config user.email "bot@klyro.codes"
+          git add n8n/workflows
+          git diff --cached --quiet || git commit -m "chore(n8n): nightly workflow export"
+          git push || true

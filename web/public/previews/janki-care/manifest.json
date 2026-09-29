@@ -1,0 +1,29 @@
+{
+  "host": "janki.care",
+  "pages": [
+    {
+      "src": "/previews/janki-care/0.webp",
+      "path": "/",
+      "width": 1280,
+      "height": 3757
+    },
+    {
+      "src": "/previews/janki-care/1.webp",
+      "path": "/dashboard",
+      "width": 1280,
+      "height": 842
+    },
+    {
+      "src": "/previews/janki-care/2.webp",
+      "path": "/services",
+      "width": 1280,
+      "height": 1712
+    },
+    {
+      "src": "/previews/janki-care/3.webp",
+      "path": "/book-appointment",
+      "width": 1280,
+      "height": 842
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+# Deploys the API + built frontends to the VPS over SSH. Requires repo secrets:
+# SSH_HOST, SSH_PORT, SSH_USER, SSH_KEY (private key), and the server .env in place.
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+      - name: Add SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Rsync build artifacts
+        run: |
+          rsync -az --delete -e "ssh -p ${{ secrets.SSH_PORT }}" \
+            server/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/var/www/klyro/server/
+          rsync -az --delete -e "ssh -p ${{ secrets.SSH_PORT }}" \
+            shared/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/var/www/klyro/shared/
+          for app in web portal admin; do
+            rsync -az --delete -e "ssh -p ${{ secrets.SSH_PORT }}" \
+              $app/dist/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/var/www/klyro/$app/
+          done
+
+      - name: Install prod deps + reload
+        run: |
+          ssh -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
+            cd /var/www/klyro && npm ci --omit=dev --workspace server &&
+            pm2 reload infra/ecosystem.config.cjs --update-env &&
+            bash infra/scripts/smoke-check.sh || (pm2 logs klyro-api --lines 50 && exit 1)
+          '

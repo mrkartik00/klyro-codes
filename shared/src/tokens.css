@@ -1,0 +1,40 @@
+/* Design tokens. Values mirror design-system/klyro/MASTER.md; update both together.
+   Per-app overrides live in each app's own index.css. */
+@theme {
+  --color-primary: #18181b;
+  --color-on-primary: #ffffff;
+  --color-secondary: #27272a;
+  --color-accent: #f8fafc;
+  --color-on-accent: #0f172a;
+  --color-background: #000000;
+  --color-foreground: #fafafa;
+  --color-card: #0c0c0c;
+  --color-muted: #181818;
+  --color-muted-foreground: #94a3b8;
+  --color-border: #3f3f46;
+  --color-destructive: #ef4444;
+  --color-ring: #ffffff;
+
+  --font-heading: 'Archivo', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

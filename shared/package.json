@@ -1,0 +1,15 @@
+{
+  "name": "@klyro/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./enums": "./src/enums.js",
+    "./schemas": "./src/schemas/index.js",
+    "./tokens.css": "./src/tokens.css"
+  },
+  "scripts": { "test": "vitest run" },
+  "dependencies": { "zod": "4.6.5" },
+  "devDependencies": { "vitest": "5.0.2" }
+}

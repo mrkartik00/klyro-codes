@@ -1,0 +1,59 @@
+@import 'tailwindcss';
+
+/* Admin command center — data-dense, blue accent. Tokens mirror
+   design-system/klyro/MASTER.md with an admin primary override. */
+@theme {
+  --color-primary: #1e40af;
+  --color-on-primary: #ffffff;
+  --color-secondary: #27272a;
+  --color-accent: #3b82f6;
+  --color-on-accent: #ffffff;
+  --color-background: #09090b;
+  --color-foreground: #fafafa;
+  --color-card: #0c0c0c;
+  --color-card-foreground: #fafafa;
+  --color-muted: #18181b;
+  --color-muted-foreground: #94a3b8;
+  --color-border: #27272a;
+  --color-input: #27272a;
+  --color-destructive: #ef4444;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-ring: #3b82f6;
+
+  --font-heading: 'Archivo', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    margin: 0;
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    min-height: 100dvh;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-heading);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

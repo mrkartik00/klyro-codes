@@ -1,0 +1,98 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { asyncHandler } from '../utils/asyncHandler.js';
+import { ok } from '../utils/apiResponse.js';
+import { internalAuth } from '../middleware/internalAuth.js';
+import { idempotency } from '../middleware/idempotency.js';
+import { validateBody } from '../middleware/validate.js';
+import { ingestBatch } from '../services/lead.service.js';
+import { applyEnrichment } from '../services/enrichment.service.js';
+import { claimSend, recordSendResult } from '../services/send.service.js';
+import { handleReply } from '../services/reply.service.js';
+import { classifyReply } from '../services/drafting.service.js';
+
+export const internalRouter = Router();
+internalRouter.use(internalAuth);
+
+const wsId = z.string().min(1);
+
+internalRouter.post(
+  '/leads/batch',
+  idempotency('internal:leads/batch'),
+  validateBody(
+    z.object({
+      workspaceId: wsId,
+      source: z.string(),
+      reference: z.string().optional(),
+      records: z.array(z.record(z.string(), z.any())).max(200),
+      createdBy: z.string().optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => ok(res, await ingestBatch(req.body))),
+);
+
+internalRouter.post(
+  '/leads/enrichment',
+  idempotency('internal:leads/enrichment'),
+  validateBody(
+    z.object({
+      workspaceId: wsId,
+      leadId: z.string(),
+      audit: z.record(z.string(), z.any()).optional(),
+      email: z.string().optional(),
+      emailStatus: z.enum(['valid', 'risky', 'invalid', 'unknown']).optional(),
+      companyType: z.enum(['ltd', 'llp', 'plc', 'sole_trader', 'unknown']).optional(),
+      timezone: z.string().optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => ok(res, await applyEnrichment(req.body))),
+);
+
+internalRouter.post(
+  '/sends/claim',
+  validateBody(z.object({ workspaceId: wsId, enrollmentId: z.string(), stepOrder: z.number().int() })),
+  asyncHandler(async (req, res) => ok(res, await claimSend(req.body))),
+);
+
+internalRouter.post(
+  '/sends/result',
+  idempotency('internal:sends/result'),
+  validateBody(
+    z.object({
+      workspaceId: wsId,
+      messageId: z.string(),
+      ok: z.boolean(),
+      providerMessageId: z.string().optional(),
+      threadId: z.string().optional(),
+      error: z.string().optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => ok(res, await recordSendResult(req.body))),
+);
+
+internalRouter.post(
+  '/replies',
+  idempotency('internal:replies'),
+  validateBody(
+    z.object({
+      workspaceId: wsId,
+      enrollmentId: z.string(),
+      contactEmail: z.string().optional(),
+      replyText: z.string().optional(),
+      replyClass: z.string().optional(),
+      subject: z.string().optional(),
+      body: z.string().optional(),
+      providerMessageId: z.string().optional(),
+      threadId: z.string().optional(),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    // Classify here if n8n didn't (single source of truth for mapping).
+    let replyClass = req.body.replyClass;
+    if (!replyClass && req.body.replyText) {
+      replyClass = (await classifyReply({ replyText: req.body.replyText })).class;
+    }
+    const result = await handleReply({ ...req.body, replyClass: replyClass ?? 'needs_review' });
+    return ok(res, result);
+  }),
+);

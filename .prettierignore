@@ -1,0 +1,8 @@
+node_modules
+dist
+coverage
+package-lock.json
+.kiro
+design-system
+IMPLEMENTATION_PLAN.md
+n8n/workflows

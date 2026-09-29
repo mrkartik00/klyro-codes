@@ -1,0 +1,100 @@
+{
+  "name": "H3 — Scheduled send (claim → Gmail → result)",
+  "meta": { "description": "Every 5 minutes: claims a send slot from /internal/sends/claim, and if claimed, sends via the matching Gmail mailbox node (add one branch per mailbox keyed on mailboxAddress), then reports the outcome to /internal/sends/result. Adds an X-Klyro-Msg header and 60-240s jitter. This template shows one mailbox branch; duplicate the Gmail node per mailbox and route on {{ $json.mailboxAddress }}." },
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 5 }] } },
+      "id": "cron",
+      "name": "Every 5 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// The enrollmentId + stepOrder to attempt would come from a due-steps query.\n// For simplicity this reads workflow static data or input; adapt as needed.\nreturn [{ json: { method: 'POST', path: '/internal/sends/claim', body: { workspaceId: $env.KLYRO_WORKSPACE_ID, enrollmentId: $json.enrollmentId, stepOrder: $json.stepOrder } } }];"
+      },
+      "id": "claimReq",
+      "name": "Build claim request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": { "workflowId": "00-klyro-api-signer", "options": {} },
+      "id": "claim",
+      "name": "Claim send slot",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            { "leftValue": "={{ $json.data.claimed }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true" } }
+          ]
+        }
+      },
+      "id": "ifClaimed",
+      "name": "Claimed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": { "amount": "={{ 60 + Math.floor(Math.random()*180) }}", "unit": "seconds" },
+      "id": "jitter",
+      "name": "Jitter 60-240s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [880, -100]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.data.to }}",
+        "subject": "={{ $json.data.subject }}",
+        "message": "={{ $json.data.body }}",
+        "options": { "customHeaders": { "values": [{ "name": "X-Klyro-Msg", "value": "={{ $json.data.headerToken }}" }] } }
+      },
+      "id": "gmailSend",
+      "name": "Gmail: send (mailbox 1)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1100, -100]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const claim = $('Claim send slot').first().json.data;\nconst sent = $input.first().json;\nreturn [{ json: { method: 'POST', path: '/internal/sends/result', idempotencyKey: claim.messageId, body: { workspaceId: $env.KLYRO_WORKSPACE_ID, messageId: claim.messageId, ok: true, providerMessageId: sent.id || sent.messageId, threadId: sent.threadId } } }];"
+      },
+      "id": "resultReq",
+      "name": "Build result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, -100]
+    },
+    {
+      "parameters": { "workflowId": "00-klyro-api-signer", "options": {} },
+      "id": "result",
+      "name": "Report result",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1540, -100]
+    }
+  ],
+  "connections": {
+    "Every 5 min": { "main": [[{ "node": "Build claim request", "type": "main", "index": 0 }]] },
+    "Build claim request": { "main": [[{ "node": "Claim send slot", "type": "main", "index": 0 }]] },
+    "Claim send slot": { "main": [[{ "node": "Claimed?", "type": "main", "index": 0 }]] },
+    "Claimed?": { "main": [[{ "node": "Jitter 60-240s", "type": "main", "index": 0 }], []] },
+    "Jitter 60-240s": { "main": [[{ "node": "Gmail: send (mailbox 1)", "type": "main", "index": 0 }]] },
+    "Gmail: send (mailbox 1)": { "main": [[{ "node": "Build result", "type": "main", "index": 0 }]] },
+    "Build result": { "main": [[{ "node": "Report result", "type": "main", "index": 0 }]] }
+  },
+  "settings": {}
+}

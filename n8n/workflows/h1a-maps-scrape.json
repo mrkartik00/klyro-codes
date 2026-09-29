@@ -1,0 +1,76 @@
+{
+  "name": "H1a — Google Maps scrape → ingest",
+  "meta": { "description": "Runs a gosom scraper job for a scrape target, polls until done, maps places to lead records, and posts them to /internal/leads/batch in chunks of 50 via the Klyro API signer. Set SCRAPER_BASE (e.g. http://127.0.0.1:8080) and KLYRO_WORKSPACE_ID env vars." },
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual",
+      "name": "Manual/Webhook Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SCRAPER_BASE }}/jobs",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ JSON.stringify({ queries: $json.queries, maxResults: $json.maxResults || 200, lang: 'en' }) }}",
+        "options": {}
+      },
+      "id": "submit",
+      "name": "Submit scrape job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": { "amount": 30, "unit": "seconds" },
+      "id": "wait",
+      "name": "Wait for scrape",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SCRAPER_BASE }}/jobs/{{ $json.id }}/results",
+        "options": {}
+      },
+      "id": "results",
+      "name": "Fetch results",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Map scraper output to Klyro lead records, chunked by 50.\nconst places = $input.first().json.results || [];\nconst records = places.map((p) => ({\n  name: p.title || p.name,\n  website: p.website || null,\n  phone: p.phone || null,\n  address: p.address || null,\n  city: p.city || null,\n  country: p.country || $json.country || 'US',\n  category: p.category || null,\n  rating: p.rating ?? null,\n  reviewCount: p.reviews ?? p.reviewCount ?? null,\n  lat: p.latitude ?? p.lat ?? null,\n  lng: p.longitude ?? p.lng ?? null,\n  placeId: p.place_id || p.placeId || null,\n}));\nconst chunks = [];\nfor (let i = 0; i < records.length; i += 50) chunks.push(records.slice(i, i + 50));\nreturn chunks.map((c, idx) => ({ json: { method: 'POST', path: '/internal/leads/batch', idempotencyKey: `${$json.id || 'job'}-${idx}`, body: { workspaceId: $env.KLYRO_WORKSPACE_ID, source: 'maps', reference: String($json.id || ''), records: c } } }));"
+      },
+      "id": "map",
+      "name": "Map & chunk",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": { "workflowId": "00-klyro-api-signer", "options": {} },
+      "id": "ingest",
+      "name": "Ingest via Klyro API",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1100, 0]
+    }
+  ],
+  "connections": {
+    "Manual/Webhook Trigger": { "main": [[{ "node": "Submit scrape job", "type": "main", "index": 0 }]] },
+    "Submit scrape job": { "main": [[{ "node": "Wait for scrape", "type": "main", "index": 0 }]] },
+    "Wait for scrape": { "main": [[{ "node": "Fetch results", "type": "main", "index": 0 }]] },
+    "Fetch results": { "main": [[{ "node": "Map & chunk", "type": "main", "index": 0 }]] },
+    "Map & chunk": { "main": [[{ "node": "Ingest via Klyro API", "type": "main", "index": 0 }]] }
+  },
+  "settings": {}
+}

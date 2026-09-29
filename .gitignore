@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.vite/
+
+# Vendored UI-UX Pro Max skill (regenerate with: npx ui-ux-pro-max-cli init --ai kiro)
+.kiro/steering/ui-ux-pro-max/
+
+# Vendored agent skills under .kiro/steering (keep only klyro-ui.md)
+.kiro/steering/*/

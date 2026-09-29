@@ -1,0 +1,45 @@
+{
+  "name": "W1 — Mailbox warmup loop",
+  "meta": { "description": "Free warmup: each mailbox sends a short natural email to your personal Gmail and other warmup addresses on a schedule, ramping volume. Recipients (a separate workflow or filter) mark them important and reply. Duplicate the Gmail send node per mailbox. Set WARMUP_RECIPIENTS (comma-separated) env var." },
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 2 }] } },
+      "id": "cron",
+      "name": "Every 2 hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const subjects = ['Quick question', 'Following up', 'Re: our chat', 'Idea for next week', 'Checking in'];\nconst bodies = ['Hey — just wanted to follow up on this. Talk soon.', 'Thanks again, let me know your thoughts.', 'Circling back on this one when you have a moment.', 'Hope your week is going well!'];\nconst recips = ($env.WARMUP_RECIPIENTS || '').split(',').map(s => s.trim()).filter(Boolean);\nconst to = recips[Math.floor(Math.random()*recips.length)] || '';\nreturn [{ json: { to, subject: subjects[Math.floor(Math.random()*subjects.length)], body: bodies[Math.floor(Math.random()*bodies.length)] } }];"
+      },
+      "id": "pick",
+      "name": "Pick recipient + copy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "send",
+      "name": "Gmail: warmup send (mailbox 1)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [440, 0]
+    }
+  ],
+  "connections": {
+    "Every 2 hours": { "main": [[{ "node": "Pick recipient + copy", "type": "main", "index": 0 }]] },
+    "Pick recipient + copy": { "main": [[{ "node": "Gmail: warmup send (mailbox 1)", "type": "main", "index": 0 }]] }
+  },
+  "settings": {}
+}

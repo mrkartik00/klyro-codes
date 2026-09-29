@@ -1,0 +1,29 @@
+{
+  "host": "shyamyatra.in",
+  "pages": [
+    {
+      "src": "/previews/shyam-yatra/0.webp",
+      "path": "/",
+      "width": 1280,
+      "height": 5200
+    },
+    {
+      "src": "/previews/shyam-yatra/1.webp",
+      "path": "/darshan",
+      "width": 1280,
+      "height": 1747
+    },
+    {
+      "src": "/previews/shyam-yatra/2.webp",
+      "path": "/aarti",
+      "width": 1280,
+      "height": 2082
+    },
+    {
+      "src": "/previews/shyam-yatra/3.webp",
+      "path": "/festivals",
+      "width": 1280,
+      "height": 1368
+    }
+  ]
+}

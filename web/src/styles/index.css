@@ -1,0 +1,261 @@
+@import 'tailwindcss';
+
+/* Web app: dark cinematic base from design-system/klyro/MASTER.md, plus an
+   electric-blue accent taken from the Klyro logo (web app only). */
+@theme {
+  --color-primary: #18181b;
+  --color-on-primary: #ffffff;
+  --color-secondary: #27272a;
+  --color-accent: #f8fafc;
+  --color-on-accent: #0f172a;
+  --color-background: #050507;
+  --color-foreground: #fafafa;
+  --color-card: #0c0c10;
+  --color-card-foreground: #fafafa;
+  --color-muted: #16161c;
+  --color-muted-foreground: #9ca3af;
+  --color-border: #26262e;
+  --color-destructive: #ef4444;
+  --color-ring: #4da3ff;
+
+  /* Brand accent (logo blues). 4da3ff on #050507 ≈ 7.3:1 contrast. */
+  --color-brand: #4da3ff;
+  --color-brand-deep: #1d5fd1;
+  --color-brand-soft: rgba(77, 163, 255, 0.14);
+
+  --font-heading: 'Archivo', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+  html.lenis,
+  html.lenis body {
+    height: auto;
+  }
+  .lenis.lenis-smooth {
+    scroll-behavior: auto !important;
+  }
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-heading);
+    letter-spacing: -0.03em;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+  ::selection {
+    background: var(--color-brand);
+    color: #050507;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .text-gradient {
+    background: linear-gradient(100deg, #ffffff 0%, #cfe4ff 35%, var(--color-brand) 70%, var(--color-brand-deep) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .eyebrow {
+    font-family: var(--font-heading);
+    font-size: 0.75rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-muted-foreground);
+  }
+  /* Split-text line masks for kinetic headings. */
+  .split-line {
+    overflow: hidden;
+    display: block;
+    padding-bottom: 0.06em;
+  }
+}
+
+/* ---------- Ambient depth: glow orbs + grain ---------- */
+.glow-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  pointer-events: none;
+  will-change: transform;
+  opacity: 0.55;
+}
+.grain {
+  position: fixed;
+  inset: -50%;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  animation: grain 8s steps(8) infinite;
+}
+@keyframes grain {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-3%, 2%); }
+  50% { transform: translate(2%, -3%); }
+  75% { transform: translate(-2%, -1%); }
+  100% { transform: translate(0, 0); }
+}
+.grid-bg {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: radial-gradient(ellipse at 50% 30%, #000 20%, transparent 70%);
+}
+
+/* ---------- Marquee ---------- */
+.marquee {
+  display: flex;
+  overflow: hidden;
+  mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
+}
+.marquee-track {
+  display: flex;
+  flex-shrink: 0;
+  gap: 3rem;
+  padding-right: 3rem;
+  animation: marquee 32s linear infinite;
+}
+.marquee:hover .marquee-track {
+  animation-play-state: paused;
+}
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+/* ---------- Custom cursor (dot + ring) ----------
+   The native cursor is hidden ONLY while the custom cursor is mounted
+   (html.has-custom-cursor), so there is never more than one cursor. */
+html.has-custom-cursor,
+html.has-custom-cursor * {
+  cursor: none !important;
+}
+/* Keep the native caret/cursor inside text fields for usability. */
+html.has-custom-cursor input,
+html.has-custom-cursor textarea,
+html.has-custom-cursor select {
+  cursor: text !important;
+}
+.cursor-dot,
+.cursor-ring {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 10000;
+  border-radius: 9999px;
+  transform: translate3d(-100px, -100px, 0);
+}
+.cursor-dot {
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  background: var(--color-brand);
+}
+.cursor-ring {
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    width 0.3s var(--ease-out-expo),
+    height 0.3s var(--ease-out-expo),
+    margin 0.3s var(--ease-out-expo),
+    background-color 0.3s var(--ease-out-expo),
+    border-color 0.3s var(--ease-out-expo),
+    opacity 0.3s var(--ease-out-expo);
+}
+.cursor-ring .cursor-label {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #050507;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.cursor-ring.is-hover {
+  width: 64px;
+  height: 64px;
+  margin: -32px 0 0 -32px;
+  border-color: var(--color-brand);
+  background-color: var(--color-brand-soft);
+}
+.cursor-ring.is-view {
+  width: 88px;
+  height: 88px;
+  margin: -44px 0 0 -44px;
+  border-color: transparent;
+  background-color: var(--color-brand);
+}
+.cursor-ring.is-view .cursor-label {
+  opacity: 1;
+}
+.cursor-ring.is-text {
+  opacity: 0;
+}
+.cursor-dot.is-hidden {
+  opacity: 0;
+}
+@media (pointer: coarse), (prefers-reduced-motion: reduce) {
+  .cursor-dot,
+  .cursor-ring {
+    display: none;
+  }
+}
+
+/* ---------- Browser-frame project preview ---------- */
+.browser-frame {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #0b0b10;
+  overflow: hidden;
+  box-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.8);
+}
+
+@keyframes preview-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

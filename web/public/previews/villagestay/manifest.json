@@ -1,0 +1,29 @@
+{
+  "host": "villagestay.live",
+  "pages": [
+    {
+      "src": "/previews/villagestay/0.webp",
+      "path": "/",
+      "width": 1280,
+      "height": 5200
+    },
+    {
+      "src": "/previews/villagestay/1.webp",
+      "path": "/about",
+      "width": 1280,
+      "height": 1517
+    },
+    {
+      "src": "/previews/villagestay/2.webp",
+      "path": "/how-it-works",
+      "width": 1280,
+      "height": 1473
+    },
+    {
+      "src": "/previews/villagestay/3.webp",
+      "path": "/safety-guidelines",
+      "width": 1280,
+      "height": 1387
+    }
+  ]
+}

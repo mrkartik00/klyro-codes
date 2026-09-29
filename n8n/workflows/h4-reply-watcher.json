@@ -1,0 +1,42 @@
+{
+  "name": "H4 — Reply watcher → classify → Klyro API",
+  "meta": { "description": "Gmail trigger per mailbox (label klyro/replies, -from:me). Strips quoted history, sends the clean reply text to /internal/replies which classifies via Gemini and stops the enrollment / advances the deal. Map the Gmail thread to an enrollmentId via a lookup you maintain, or pass threadId and let the API match. Requires Gmail OAuth credential." },
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": { "item": [{ "mode": "everyMinute" }] },
+        "simple": false,
+        "filters": { "labelIds": ["Label_klyro_replies"], "q": "-from:me" }
+      },
+      "id": "gmailTrigger",
+      "name": "Gmail Trigger (replies)",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Strip quoted history and signatures before classification.\nconst m = $input.first().json;\nconst full = (m.text || m.snippet || '').toString();\nconst clean = full\n  .split(/\\n>|On .+wrote:|-----Original Message-----|_{5,}/)[0]\n  .replace(/\\n{3,}/g, '\\n\\n')\n  .trim()\n  .slice(0, 4000);\nreturn [{ json: { method: 'POST', path: '/internal/replies', idempotencyKey: m.id, body: { workspaceId: $env.KLYRO_WORKSPACE_ID, enrollmentId: m.enrollmentId || null, threadId: m.threadId, contactEmail: (m.from || '').match(/[^<>\\s]+@[^<>\\s]+/)?.[0], replyText: clean, providerMessageId: m.id, subject: m.subject } } }];"
+      },
+      "id": "clean",
+      "name": "Strip quotes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": { "workflowId": "00-klyro-api-signer", "options": {} },
+      "id": "post",
+      "name": "Post reply to Klyro",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [440, 0]
+    }
+  ],
+  "connections": {
+    "Gmail Trigger (replies)": { "main": [[{ "node": "Strip quotes", "type": "main", "index": 0 }]] },
+    "Strip quotes": { "main": [[{ "node": "Post reply to Klyro", "type": "main", "index": 0 }]] }
+  },
+  "settings": {}
+}

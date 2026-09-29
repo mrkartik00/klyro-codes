@@ -1,0 +1,29 @@
+{
+  "host": "estate100.com",
+  "pages": [
+    {
+      "src": "/previews/estate100/0.webp",
+      "path": "/",
+      "width": 1280,
+      "height": 5200
+    },
+    {
+      "src": "/previews/estate100/1.webp",
+      "path": "/map",
+      "width": 1280,
+      "height": 1265
+    },
+    {
+      "src": "/previews/estate100/2.webp",
+      "path": "/calculator",
+      "width": 1280,
+      "height": 5200
+    },
+    {
+      "src": "/previews/estate100/3.webp",
+      "path": "/land-records",
+      "width": 1280,
+      "height": 800
+    }
+  ]
+}
