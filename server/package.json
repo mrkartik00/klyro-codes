@@ -39,8 +39,5 @@
     "mongodb-memory-server": "11.3.0",
     "supertest": "7.3.0",
     "vitest": "5.0.2"
-  },
-  "optionalDependencies": {
-    "redis-memory-server": "0.17.1"
   }
 }

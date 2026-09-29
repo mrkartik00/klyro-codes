@@ -7,7 +7,8 @@
  * Ctrl-C to stop; the in-memory stores are discarded on exit.
  */
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
-import { RedisMemoryServer } from 'redis-memory-server';
+let RedisMemoryServer;
+try { ({ RedisMemoryServer } = await import('redis-memory-server')); } catch { console.error('redis-memory-server (optional) not installed — run: npm i -D redis-memory-server -w server'); process.exit(1); }
 
 const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
 const redis = new RedisMemoryServer();
