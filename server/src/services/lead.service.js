@@ -92,7 +92,7 @@ async function ingestOne({ workspaceId, source, reference, record, createdBy }, 
     await lead.save({ session });
   }
 
-  return { leadId: lead._id, created };
+  return { leadId: lead._id, created, domain: org?.domain ?? domain ?? null };
 }
 
 /** Ingest a batch of raw records atomically. Idempotent by dedupe keys. */
@@ -114,7 +114,10 @@ export async function ingestBatch({ workspaceId, source, reference, records, cre
       },
       session,
     );
-    return { received: records.length, created: createdCount, leadIds: results.map((r) => r.leadId) };
+    return { received: records.length, created: createdCount, leadIds: results.map((r) => r.leadId),
+      // Per-lead info so n8n can enrich without re-reading the database.
+      leads: results.map((r) => ({ leadId: r.leadId, domain: r.domain, created: r.created })),
+    };
   });
 }
 

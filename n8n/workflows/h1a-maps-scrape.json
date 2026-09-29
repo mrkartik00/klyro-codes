@@ -316,6 +316,39 @@
         },
         "options": {}
       }
+    },
+    {
+      "id": "to-enrich",
+      "name": "Leads to enrich",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// One item per ingested lead, from the API's response (leadId + domain).\nconst p = $('Verify & plan').first().json;\nconst out = [];\nfor (const res of $input.all()) {\n  for (const l of res.json?.data?.leads || []) {\n    if (!l.leadId) continue;\n    out.push({ json: { workspaceId: p.workspaceId, leadId: String(l.leadId),\n      website: l.domain ? `https://${l.domain}` : null, country: p.country } });\n  }\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "enrich",
+      "name": "Enrich leads",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        3520,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "KlyroH1bEnrich01",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -484,6 +517,11 @@
             "node": "Summarise",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Leads to enrich",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -493,6 +531,17 @@
         [
           {
             "node": "Report done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leads to enrich": {
+      "main": [
+        [
+          {
+            "node": "Enrich leads",
             "type": "main",
             "index": 0
           }
