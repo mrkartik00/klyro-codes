@@ -20,7 +20,9 @@ import { webhooksRouter } from './routes/webhooks.routes.js';
 
 export function createApp() {
   const app = express();
-  app.set('trust proxy', 1);
+  // Chain: client → provider TLS proxy → nginx → app. Trust both hops so
+  // req.ip is the real client (rate limits / audit IPs are per-visitor).
+  app.set('trust proxy', 2);
   app.disable('x-powered-by');
 
   app.use(helmet());
