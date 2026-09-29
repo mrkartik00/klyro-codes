@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import api, { unwrap } from '../lib/api.js';
 import { useToast } from '../hooks/useToast.jsx';
+import { useAuth } from '../hooks/useAuth.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import {
   Card,
@@ -13,6 +14,7 @@ import {
 
 export default function TwoFactor() {
   const toast = useToast();
+  const { logout } = useAuth();
   const [setup, setSetup] = useState(null); // { otpauth, secret }
   const [code, setCode] = useState('');
   const [confirmed, setConfirmed] = useState(false);
@@ -20,19 +22,25 @@ export default function TwoFactor() {
   const begin = useMutation({
     mutationFn: () => unwrap(api.post('/auth/2fa/setup')),
     onSuccess: (data) => {
-      setSetup({
-        otpauth: data.otpauth || data.otpauthUrl || data.uri,
-        secret: data.secret || data.base32,
-      });
+      const otpauth = data.otpauth || data.otpauthUrl || data.uri;
+      let secret = data.secret || data.base32;
+      try {
+        secret = secret || new URL(otpauth).searchParams.get('secret');
+      } catch {
+        /* ignore */
+      }
+      setSetup({ otpauth, secret });
     },
     onError: (e) => toast.error(e.message || 'Setup failed'),
   });
 
   const confirm = useMutation({
-    mutationFn: () => unwrap(api.post('/auth/2fa/confirm', { code })),
+    mutationFn: () => unwrap(api.post('/auth/2fa/confirm', { token: code })),
     onSuccess: () => {
       setConfirmed(true);
-      toast.success('2FA enabled');
+      toast.success('2FA enabled — sign in again to continue');
+      // The current token was issued before 2FA existed; force a fresh login.
+      setTimeout(() => logout(), 1500);
     },
     onError: (e) => toast.error(e.message || 'Invalid code'),
   });

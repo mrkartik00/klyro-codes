@@ -58,8 +58,7 @@
   }
   img,
   svg,
-  video,
-  iframe {
+  video {
     max-width: 100%;
   }
   html {

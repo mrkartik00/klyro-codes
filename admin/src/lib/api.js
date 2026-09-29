@@ -44,6 +44,17 @@ api.interceptors.response.use(
     const original = error.config;
     const status = error.response?.status;
 
+    // Admin routes require 2FA. Until it's enabled, send the user to setup.
+    if (
+      status === 403 &&
+      error.response?.data?.error?.code === 'TOTP_SETUP_REQUIRED' &&
+      typeof window !== 'undefined' &&
+      window.location.pathname !== '/2fa'
+    ) {
+      window.location.assign('/2fa');
+      return Promise.reject(error);
+    }
+
     if (
       status === 401 &&
       original &&
