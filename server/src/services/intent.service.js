@@ -448,10 +448,28 @@ async function runCompaniesHouse({ workspaceId, target, job, createdBy, limit, n
   const d = await getJson(`https://api.company-information.service.gov.uk/advanced-search/companies?${qs}`, {
     headers: { authorization: `Basic ${Buffer.from(`${env.COMPANIES_HOUSE_API_KEY}:`).toString('base64')}` },
   });
-  const records = (d.items || []).slice(0, limit).map((c) => {
+  const auth = { authorization: `Basic ${Buffer.from(`${env.COMPANIES_HOUSE_API_KEY}:`).toString('base64')}` };
+  const items = (d.items || []).slice(0, limit);
+  // Director = the person to contact (free API; limit 600 requests / 5 min).
+  const directors = {};
+  for (const c of items) {
+    const o = await getJson(`https://api.company-information.service.gov.uk/company/${c.company_number}/officers?items_per_page=5`, { headers: auth }, { retries: 1 }).catch(() => null);
+    const dir = (o?.items || []).find((x) => /director/i.test(x.officer_role) && !x.resigned_on);
+    if (dir?.name) {
+      const [last, first] = dir.name.split(',').map((x) => x.trim());
+      directors[c.company_number] = titleCase(first ? `${first.split(' ')[0]} ${last}` : last);
+    }
+    await sleep(250);
+  }
+  const records = items.map((c) => {
     const a = c.registered_office_address || {};
     const code = (c.sic_codes || []).find((x) => SIC[x]);
+    const url = `https://find-and-update.company-information.service.gov.uk/company/${c.company_number}`;
     return {
+      contactName: directors[c.company_number],
+      contactTitle: directors[c.company_number] ? 'Director' : undefined,
+      tags: ['new-company', 'no-website'],
+      notes: `New UK company, incorporated ${c.date_of_creation}. ${SIC[code] || 'Local business'}. Companies House: ${url}. Pitch: first website + Google Business profile.`,
       name: titleCase(c.company_name),
       placeId: `ch:${c.company_number}`, // dedupe key
       address: [a.address_line_1, a.address_line_2, a.locality, a.postal_code].filter(Boolean).join(', '),

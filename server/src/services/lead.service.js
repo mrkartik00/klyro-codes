@@ -61,9 +61,14 @@ async function ingestOne({ workspaceId, source, reference, record, createdBy }, 
   if (isUsableEmail(record.email)) {
     contact = await Contact.findOneAndUpdate(
       { workspaceId, email: record.email.toLowerCase() },
-      { $setOnInsert: { workspaceId, createdBy, organizationId: org._id, email: record.email.toLowerCase() } },
+      { $setOnInsert: { workspaceId, createdBy, organizationId: org._id, email: record.email.toLowerCase(), name: record.contactName, title: record.contactTitle } },
       { upsert: true, new: true, session },
     );
+  } else if (record.contactName) {
+    // A named person without an email yet (e.g. a company director).
+    contact =
+      (await Contact.findOne({ workspaceId, organizationId: org._id, name: record.contactName }).session(session)) ||
+      (await Contact.create([{ workspaceId, createdBy, organizationId: org._id, name: record.contactName, title: record.contactTitle }], { session, ordered: true }))[0];
   }
 
   let lead = await Lead.findOne({ workspaceId, organizationId: org._id }).session(session);
@@ -78,6 +83,8 @@ async function ingestOne({ workspaceId, source, reference, record, createdBy }, 
           primaryContactId: contact?._id,
           country: record.country,
           source,
+          ...(record.notes ? { notes: record.notes } : {}),
+          ...(record.tags?.length ? { tags: record.tags } : {}),
         },
       ],
       { session, ordered: true },
