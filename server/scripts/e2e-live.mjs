@@ -164,6 +164,29 @@ try {
     await ok('POST', '/auth/forgot', { body: { email: `${RUN}-nobody@klyro.test` } });
   });
 
+  await step('auth', 'resend verification code (no enumeration)', async () => {
+    await ok('POST', '/auth/verify/resend', { body: { email: `${RUN}-nobody@klyro.test` } });
+  });
+  await step('auth', 'password reset: token → new password → login', async () => {
+    const crypto2 = await import('node:crypto');
+    const raw = crypto2.randomBytes(32).toString('hex');
+    await db.collection('users').updateOne(
+      { _id: client._id },
+      { $set: { resetTokenHash: crypto2.createHash('sha256').update(raw).digest('hex'), resetTokenExpires: new Date(Date.now() + 3600e3) } },
+    );
+    const bad = await http('POST', '/auth/reset', { body: { email: client.email, token: 'nope', password: 'Another-Pass-123' } });
+    expect(bad.status === 400, `bad token → ${bad.status}`);
+    await ok('POST', '/auth/reset', { body: { email: client.email, token: raw, password: `${PW}x` } });
+    const d = await ok('POST', '/auth/login', { body: { email: client.email, password: `${PW}x` } });
+    state.client = d.accessToken;
+  });
+  await step('auth', 'unverified login → EMAIL_NOT_VERIFIED', async () => {
+    const u = await M.User.create({ name: 'U', email: `${RUN}-unverified@klyro.test`, passwordHash: await hashPassword(PW) });
+    await M.Membership.create({ workspaceId: ws._id, userId: u._id, role: 'client' });
+    const r = await http('POST', '/auth/login', { body: { email: u.email, password: PW } });
+    expect(r.status === 403 && r.json?.error?.code === 'EMAIL_NOT_VERIFIED', `got ${r.status} ${r.json?.error?.code}`);
+  });
+
   const A = () => ({ token: state.admin });
 
   // =========================================================== LEADS
@@ -177,10 +200,13 @@ try {
     expect(state.leadId && state.leadId !== 'undefined', `no lead id in ${JSON.stringify(r).slice(0, 120)}`);
     return d ? '' : '';
   });
-  await step('leads', 'list + search leads', async () => {
+  await step('leads', 'list + search leads (incl. regex chars)', async () => {
     const d = await ok('GET', `/admin/leads?q=${encodeURIComponent(RUN)}`, A());
     const items = d.items || d.leads || d;
-    expect(Array.isArray(items), 'not a list');
+    expect(Array.isArray(items) && items.length === 1, `expected 1 match, got ${items.length}`);
+    expect(items[0].organizationId?.name, 'org not populated');
+    const weird = await http('GET', `/admin/leads?q=${encodeURIComponent('a(b[c*')}`, A());
+    expect(weird.status === 200, `regex chars → ${weird.status}`);
     return `${items.length} found`;
   });
   await step('leads', 'lead detail', async () => {
@@ -390,6 +416,14 @@ try {
     expect(r.status === 200, `${deal.stage}→${to}: ${r.status} ${String(JSON.stringify(r.json?.error ?? '')).slice(0, 120)}`);
     return `${deal.stage}→${to}`;
   });
+  await step('client', 'client auto-linked to their deal on login', async () => {
+    const buyer = await M.User.create({ name: 'Buyer', email: `${RUN}-owner@example.com`, passwordHash: await hashPassword(PW), emailVerifiedAt: new Date() });
+    await M.Membership.create({ workspaceId: ws._id, userId: buyer._id, role: 'client' });
+    await ok('POST', '/auth/login', { body: { email: buyer.email, password: PW } });
+    const deal = await db.collection('deals').findOne({ _id: new mongoose.Types.ObjectId(state.dealId) });
+    expect(String(deal.clientUserId) === String(buyer._id), 'deal not linked to the buyer');
+    await db.collection('deals').updateOne({ _id: deal._id }, { $unset: { clientUserId: '' } });
+  });
   await step('deals', 'assign client user to deal', async () => {
     await ok('POST', `/admin/deals/${state.dealId}/assign-client`, { ...A(), body: { clientUserId: String(client._id) } });
   });
@@ -497,7 +531,10 @@ try {
     return `${(d.items || d).length} rows`;
   });
   await step('admin', 'analytics summary + funnel', async () => {
-    await ok('GET', '/admin/analytics/summary', A());
+    const sm = await ok('GET', '/admin/analytics/summary', A());
+    for (const k of ['leads', 'pendingApprovals', 'openDeals', 'activeCampaigns', 'unpaidInvoices', 'replies7d']) {
+      expect(typeof sm[k] === 'number', `summary.${k} missing`);
+    }
     await ok('GET', '/admin/analytics/funnel', A());
   });
   await step('admin', 'automation: n8n workflows + executions', async () => {

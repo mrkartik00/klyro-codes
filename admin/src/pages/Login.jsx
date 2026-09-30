@@ -121,6 +121,14 @@ export default function Login() {
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? 'Signing in…' : 'Sign in'}
             </Button>
+            <p className="text-center text-sm">
+              <a
+                href={`${import.meta.env.VITE_PORTAL_URL || 'https://app.klyro.codes'}/forgot`}
+                className="inline-flex min-h-11 items-center text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                Forgot password?
+              </a>
+            </p>
           </form>
         </CardContent>
       </Card>
