@@ -5,6 +5,12 @@ set -euo pipefail
 API="${1:-https://api.klyro.codes/api/v1}"
 fail=0
 
+# Wait (up to 60 s) for the API to come back after a reload before checking.
+for _ in $(seq 1 30); do
+  [ "$(curl -s -o /dev/null -w '%{http_code}' "$API/health/live")" = "200" ] && break
+  sleep 2
+done
+
 check() {
   local desc="$1" method="$2" path="$3" want="$4"
   local code
