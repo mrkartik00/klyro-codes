@@ -9,8 +9,8 @@ describe('enquirySchema', () => {
     expect(enquirySchema.parse(valid).email).toBe('jane@example.com');
   });
 
-  it('rejects when the honeypot is filled', () => {
-    expect(enquirySchema.safeParse({ ...valid, website_url: 'http://spam' }).success).toBe(false);
+  it('accepts a filled honeypot (route drops it silently, bots get a normal 200)', () => {
+    expect(enquirySchema.safeParse({ ...valid, website_url: 'http://spam' }).success).toBe(true);
   });
 
   it('rejects a too-short message', () => {

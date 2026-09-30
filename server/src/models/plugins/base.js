@@ -28,9 +28,10 @@ export function basePlugin(schema, { softDelete = false, tenant = true } = {}) {
   schema.set('toJSON', {
     virtuals: true,
     versionKey: false,
+    // Keep _id AND id: list endpoints return lean docs (_id only) while
+    // create/update return documents; clients can rely on _id everywhere.
     transform: (_doc, ret) => {
-      ret.id = ret._id;
-      delete ret._id;
+      if (ret._id != null) ret.id = String(ret._id);
       return ret;
     },
   });
