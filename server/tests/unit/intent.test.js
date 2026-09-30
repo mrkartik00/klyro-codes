@@ -26,6 +26,10 @@ describe('prefilter', () => {
     expect(prefilter(p('I just launched my new app!', { platform: 'bluesky' }))).toBe(false);
     expect(prefilter(p("I'm a web developer available for work", { platform: 'x' }))).toBe(false);
   });
+  it('blocks gambling, spyware and hardware work', () => {
+    for (const t of ['Android Color Prediction Game', 'Silent Android Screenshot Service', 'BMS Firmware Developer With iPhone app', 'Casino website build'])
+      expect(prefilter(p(t, { trusted: true, platform: 'freelancer' }))).toBe(false);
+  });
   it('keeps software tenders even without web words', () => {
     expect(prefilter(p('Case management software platform', { trusted: true, platform: 'tenders' }))).toBe(true);
   });

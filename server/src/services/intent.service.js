@@ -426,9 +426,14 @@ async function runCompaniesHouse({ workspaceId, target, job, createdBy, limit, n
 
 const ADAPTERS = { freelancer: fetchFreelancer, hackernews: fetchHackerNews, tenders: fetchTenders, bluesky: fetchBluesky, brave: fetchBrave, x: fetchX };
 
+// Never pursue: gambling, adult, covert tracking, firmware/hardware, games.
+export const BLOCK_RE =
+  /\b(casino|betting|gambling|colou?r prediction|satta|lottery|slot game|adult|onlyfans|escort|dating app for escorts|spy(ware)?|stalk|silent (\w+ )?(screenshot|recording|tracking)|keylogger|hack(ing)? (account|whatsapp|instagram)|firmware|pcb|arduino|embedded|iot device|unity game|puzzle game|nft mint|crypto trading bot)\b/i;
+
 /** Keyword pre-filter before paying for the AI check. */
 export function prefilter(post) {
   const text = `${post.title}\n${post.text}`;
+  if (BLOCK_RE.test(text)) return false;
   if (SELLER_RE.test(post.trusted ? post.title : text)) return false;
   if (!BUILD_RE.test(text) && !(post.platform === 'tenders')) return false;
   return post.trusted || HIRE_RE.test(text);
