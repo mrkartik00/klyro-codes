@@ -292,6 +292,7 @@ function intentPrompt(post) {
     '- job_seeker: looking for a job, internship or paid work.',
     '- other: anything else.',
     '- Only count as buyer if the WORK is building or substantially developing a website, web app, mobile app or online store. Design-only, photo/video editing, SEO, marketing, data entry, hardware/IoT/firmware, games, bots/scripts, crypto trading bots and "fix one small bug" tasks are role "other".',
+    '- Job ads for an employee (full-time/part-time role, salary, "join our team") are role "other"; a contract or one-off project to build something is "buyer".',
     '- Anything unethical or covert (spyware, silent tracking, scraping personal data, fake reviews, account farming, gambling/adult) is role "other".',
     `Title: ${post.title}`,
     where,

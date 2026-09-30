@@ -19,7 +19,7 @@ const PRESETS = [
   { source: 'freelancer', group: 'Freelancer.com', name: 'Freelancer — websites & web apps', keywords: ['website', 'web app', 'wordpress', 'shopify', 'ecommerce', 'landing page'], filters: { minBudgetUsd: 250, maxBids: 60, maxAgeDays: 2, minIntent: 0.5, maxChecks: 20 } },
   { source: 'freelancer', group: 'Freelancer.com', name: 'Freelancer — mobile apps', keywords: ['mobile app', 'android app', 'ios app', 'flutter', 'react native'], filters: { minBudgetUsd: 300, maxBids: 60, maxAgeDays: 2, minIntent: 0.5, maxChecks: 15 } },
   { source: 'freelancer', group: 'Freelancer.com', name: 'Freelancer — big projects ($1.5k+)', keywords: ['website', 'app', 'platform', 'saas', 'marketplace'], filters: { minBudgetUsd: 1500, maxBids: 100, maxAgeDays: 3, minIntent: 0.5, maxChecks: 15 } },
-  { source: 'hackernews', group: 'Hacker News', name: 'HN — seeking freelancer & founders', keywords: [], filters: { maxAgeDays: 7, minIntent: 0.6 } },
+  { source: 'hackernews', group: 'Hacker News', name: 'HN — seeking freelancer & founders', keywords: [], filters: { maxAgeDays: 7, minIntent: 0.6, maxChecks: 10 } },
   { source: 'tenders', group: 'Public tenders', name: 'Tenders — UK websites & software', keywords: [], maxResults: 40, filters: { maxAgeDays: 3, minIntent: 0.5 } },
   { source: 'bluesky', group: 'Social networks', name: 'Bluesky — people hiring a developer', keywords: [...SOCIAL, 'need a developer', 'hiring a freelance developer', 'build my app', 'recommend a web designer'], filters: { maxAgeDays: 7, minIntent: 0.6 } },
   // Brave: public RFPs (US councils, nonprofits, schools…) are the best yield; LinkedIn/X posts are thin in its index.
@@ -46,12 +46,12 @@ for (const p of PRESETS) {
 
 // Retired: too many AI checks for the free Gemini quota.
 await ScrapeTarget.updateMany({ workspaceId: ws._id, name: 'Threads, Facebook, Quora — web search', deletedAt: null }, { $set: { deletedAt: new Date(), active: false } });
-await ScrapeSchedule.updateMany({ workspaceId: ws._id, name: { $in: ['Freelancer.com — every 30 min', 'LinkedIn / X / Threads web search — 06:30 & 18:30'] }, deletedAt: null }, { $set: { deletedAt: new Date(), enabled: false } });
+await ScrapeSchedule.updateMany({ workspaceId: ws._id, name: { $in: ['Bluesky — every 2 hours', 'Freelancer.com — every 30 min', 'LinkedIn / X / Threads web search — 06:30 & 18:30'] }, deletedAt: null }, { $set: { deletedAt: new Date(), enabled: false } });
 const SCHEDULES = [
   { name: 'Freelancer.com — every 2 hours', source: 'freelancer', perRun: 0, frequency: { type: 'interval', everyMinutes: 120 } },
   { name: 'Hacker News — every 6 hours', source: 'hackernews', perRun: 0, frequency: { type: 'interval', everyMinutes: 360 } },
   { name: 'Public tenders — daily 06:00', source: 'tenders', perRun: 0, frequency: { type: 'daily', times: ['06:00'] } },
-  { name: 'Bluesky — every 2 hours', source: 'bluesky', perRun: 0, frequency: { type: 'interval', everyMinutes: 120 } },
+  { name: 'Bluesky — every 6 hours', source: 'bluesky', perRun: 0, frequency: { type: 'interval', everyMinutes: 360 } },
   // Two Brave keys ≈ 1,900 searches/month: 4 presets × 13 queries × 4 runs/day ≈ 1,560.
   { name: 'Web search (RFPs, LinkedIn, X, Threads) — 4× daily', source: 'brave', perRun: 0, frequency: { type: 'daily', times: ['00:30', '06:30', '12:30', '18:30'] } },
   { name: 'X API — every 3 hours (paid, capped)', source: 'x', perRun: 0, frequency: { type: 'interval', everyMinutes: 180 } },
