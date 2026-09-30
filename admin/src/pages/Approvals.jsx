@@ -141,11 +141,17 @@ export default function Approvals() {
                         <span className="min-w-0 truncate font-medium">
                           {item.leadName || item.to || item.recipient || `Step ${item.stepOrder ?? ''}`.trim() || 'Recipient'}
                         </span>
-                        <Badge>{item.channel || 'email'}</Badge>
+                        <Badge>Step {item.stepOrder ?? 1}</Badge>
                         <span className="text-xs text-muted-foreground">
                           {formatDate(item.createdAt)}
                         </span>
                       </div>
+                      {(item.to || item.website) && (
+                        <p className="mb-1 break-all text-xs text-muted-foreground">
+                          {item.to ? `To ${item.to}` : 'No email yet'}
+                          {item.website ? ` · ${item.website}` : ''}
+                        </p>
+                      )}
                       {d.subject && <p className="text-sm font-medium break-words">{d.subject}</p>}
                       <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">
                         {d.body || '—'}

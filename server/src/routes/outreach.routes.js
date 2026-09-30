@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { Lead } from '../models/Lead.js';
 import { z } from 'zod';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { ok, created } from '../utils/apiResponse.js';
@@ -128,7 +129,23 @@ outreachRouter.get(
       filter: { status: req.query.status ?? 'pending' },
       sort: { createdAt: 1 },
     });
-    return ok(res, result.items, result.meta);
+    // Say who each draft is for: business name, recipient email, website.
+    const leadIds = [...new Set(result.items.map((a) => String(a.leadId)).filter(Boolean))];
+    const leads = await Lead.find({ workspaceId: req.workspaceId, _id: { $in: leadIds } })
+      .populate('organizationId primaryContactId')
+      .lean();
+    const byId = Object.fromEntries(leads.map((l) => [String(l._id), l]));
+    const items = result.items.map((a) => {
+      const l = byId[String(a.leadId)];
+      return {
+        ...a,
+        leadName: l?.organizationId?.name ?? null,
+        to: l?.primaryContactId?.email ?? null,
+        website: l?.organizationId?.domain ?? null,
+        score: l?.score ?? null,
+      };
+    });
+    return ok(res, items, result.meta);
   }),
 );
 outreachRouter.post(
