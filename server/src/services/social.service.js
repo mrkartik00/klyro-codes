@@ -156,6 +156,50 @@ export async function searchReddit({ community, query, queries, maxAgeDays = 14 
   return redditGet(`/r/${sub}/search?${q}`, `/r/${sub}/search.rss?${q}`);
 }
 
+// Arctic Shift (free public Reddit archive; no key). Used first because
+// Reddit throttles unauthenticated servers (429). Paginates backwards in time.
+const ARCTIC = 'https://arctic-shift.photon-reddit.com/api/posts/search';
+const fromArctic = (p) => ({
+  id: `t3_${p.id}`,
+  title: decodeEntities(p.title || ''),
+  author: p.author,
+  url: p.permalink ? `https://www.reddit.com${p.permalink}` : `https://www.reddit.com/r/${p.subreddit}/comments/${p.id}/`,
+  community: p.subreddit,
+  postedAt: new Date(p.created_utc * 1000).toISOString(),
+  text: decodeEntities(String(p.selftext || '')).slice(0, 4000),
+});
+
+/** Recent posts in a subreddit from Arctic Shift (up to `max`, within `sinceDays`). */
+export async function arcticPosts({ community, sinceDays = 14, max = 300 }) {
+  const after = Math.floor(Date.now() / 1000 - sinceDays * 86400);
+  const out = [];
+  let before;
+  while (out.length < max) {
+    const q = new URLSearchParams({ subreddit: community, limit: '100', sort: 'desc', after: String(after), fields: 'id,title,selftext,author,subreddit,created_utc' });
+    if (before) q.set('before', String(before));
+    let data;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const res = await fetch(`${ARCTIC}?${q}`, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(20000) }).catch((e) => ({ ok: false, status: e.name }));
+      const body = res.ok ? await res.json().catch(() => null) : null;
+      if (body && !body.error) {
+        data = body.data || [];
+        break;
+      }
+      if (body?.error && !/timeout|slow/i.test(body.error)) throw new Error(`Arctic Shift: ${body.error}`);
+      await sleep(4000 * (attempt + 1)); // "Timeout. Maybe slow down a bit"
+    }
+    if (!data) {
+      if (!out.length) throw new Error('Arctic Shift unavailable');
+      break;
+    }
+    out.push(...data.map(fromArctic));
+    if (data.length < 100) break;
+    before = data[data.length - 1].created_utc;
+    await sleep(1200);
+  }
+  return out.slice(0, max);
+}
+
 /** Newest posts in a community (used for hiring boards). */
 export async function latestReddit({ community }) {
   const sub = encodeURIComponent(community);
@@ -167,7 +211,7 @@ export async function latestReddit({ community }) {
  * wants to hire someone (or it's a [Hiring] post on a hiring board), and it's
  * not a developer/agency/job seeker.
  */
-export function looksLikeBuyer(post, { maxAgeDays = 14 } = {}) {
+export function looksLikeBuyer(post, { maxAgeDays = 14, phrases = [] } = {}) {
   const text = `${post.title}\n${post.text}`;
   if (!post.author || ['[deleted]', 'AutoModerator'].includes(post.author)) return false;
   const age = (Date.now() - new Date(post.postedAt).getTime()) / 864e5;
@@ -180,7 +224,8 @@ export function looksLikeBuyer(post, { maxAgeDays = 14 } = {}) {
   }
   if (SELLER_RE.test(text)) return false;
   if (!BUILD_RE.test(text)) return false;
-  return HIRE_RE.test(text);
+  const lower = text.toLowerCase();
+  return HIRE_RE.test(text) || phrases.some((p) => p && lower.includes(p.toLowerCase()));
 }
 
 /** Keyword score, used only when Gemini is unavailable. Strict by design. */
@@ -385,8 +430,13 @@ export async function runRedditTarget({ workspaceId, target, job }) {
       const board = Boolean(HIRING_BOARDS[community.toLowerCase()]);
       // One request per community (phrases OR-ed) keeps us well under Reddit's
       // rate limit; on 429, wait a minute and try once more.
-      const fetchPosts = () =>
-        board ? latestReddit({ community }) : searchReddit({ community, queries: queries.length ? queries : DEFAULT_QUERIES, maxAgeDays });
+      const fetchPosts = async () => {
+        try {
+          return await arcticPosts({ community, sinceDays: maxAgeDays, max: board ? 500 : 300 });
+        } catch {
+          return board ? latestReddit({ community }) : searchReddit({ community, queries: queries.length ? queries : DEFAULT_QUERIES, maxAgeDays });
+        }
+      };
       {
         let posts = [];
         try {
@@ -405,7 +455,7 @@ export async function runRedditTarget({ workspaceId, target, job }) {
           if (seen.has(post.id) || created >= limit) continue;
           seen.add(post.id);
           stats.checked += 1;
-          if (!looksLikeBuyer(post, { maxAgeDays })) {
+          if (!looksLikeBuyer(post, { maxAgeDays, phrases: queries })) {
             stats.filtered += 1;
             continue;
           }
@@ -433,7 +483,7 @@ export async function runRedditTarget({ workspaceId, target, job }) {
         }
         note(`r/${community}: ${posts.length} posts read, ${found - before.found} candidates, ${created - before.created} new leads`);
         await progress({ found, ingested: created });
-        await sleep(6000); // be polite to Reddit
+        await sleep(2000); // be polite to the APIs
       }
     }
     await progress({ status: 'enriched', found, ingested: created, finishedAt: new Date() });
