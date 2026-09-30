@@ -41,12 +41,20 @@ export default function Mailboxes() {
 
   const update = useMutation({
     mutationFn: ({ id, body }) =>
-      unwrap(api.patch(`/admin/outreach/mailboxes/${id}`, body)),
+      unwrap(api.patch(`/admin/manage/mailboxes/${id}`, body)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['mailboxes'] });
       toast.success('Mailbox updated');
     },
     onError: (e) => toast.error(e.message || 'Update failed'),
+  });
+  const remove = useMutation({
+    mutationFn: (id) => unwrap(api.delete(`/admin/manage/mailboxes/${id}`)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mailboxes'] });
+      toast.success('Mailbox removed');
+    },
+    onError: (e) => toast.error(e.message || 'Remove failed'),
   });
 
   return (
@@ -72,13 +80,17 @@ export default function Mailboxes() {
           </div>
         ) : (
           <div className="-mx-px overflow-x-auto overscroll-x-contain">
-            <table className="w-full min-w-[640px] text-sm [&_th]:whitespace-nowrap">
+            <table className="w-full min-w-[960px] text-sm [&_th]:whitespace-nowrap">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-4 py-3">Email</th>
                   <th className="px-4 py-3">From name</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Daily cap</th>
+                  <th className="px-4 py-3">Sent today</th>
+                  <th className="px-4 py-3">Bounce / complaint</th>
+                  <th className="px-4 py-3">Last sent</th>
+                  <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
@@ -87,7 +99,14 @@ export default function Mailboxes() {
                   return (
                     <tr key={id} className="border-b border-border/60">
                       <td className="px-4 py-3">{m.address}</td>
-                      <td className="px-4 py-3">{m.displayName || '—'}</td>
+                      <td className="px-4 py-3">
+                        <input
+                          aria-label={`From name for ${m.address}`}
+                          defaultValue={m.displayName || ''}
+                          onBlur={(e) => e.target.value !== (m.displayName || '') && update.mutate({ id, body: { displayName: e.target.value } })}
+                          className="w-40 rounded-md border border-input bg-muted px-2 py-1 text-xs"
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <select
                           value={m.status || 'warming'}
@@ -115,6 +134,16 @@ export default function Mailboxes() {
                           }
                           className="w-20 rounded-md border border-input bg-muted px-2 py-1 text-xs"
                         />
+                      </td>
+                      <td className="px-4 py-3 tabular-nums">{m.sentToday ?? 0}</td>
+                      <td className="px-4 py-3 tabular-nums">
+                        {((m.bounceRate ?? 0) * 100).toFixed(1)}% / {((m.complaintRate ?? 0) * 100).toFixed(2)}%
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{m.lastSentAt ? new Date(m.lastSentAt).toLocaleString() : '—'}</td>
+                      <td className="px-4 py-3 text-right">
+                        <Button size="sm" variant="ghost" onClick={() => window.confirm(`Remove ${m.address}? Nothing will be sent from it.`) && remove.mutate(id)} aria-label={`Remove ${m.address}`}>
+                          Remove
+                        </Button>
                       </td>
                     </tr>
                   );

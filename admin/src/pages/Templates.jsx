@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Pencil } from 'lucide-react';
 import api, { unwrap } from '../lib/api.js';
 import { useToast } from '../hooks/useToast.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
@@ -24,6 +24,7 @@ export default function Templates() {
   const [name, setName] = useState('');
   const [channel, setChannel] = useState('email');
   const [variants, setVariants] = useState([{ subject: '', body: '' }]);
+  const [editId, setEditId] = useState(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['templates'],
@@ -33,16 +34,32 @@ export default function Templates() {
   const rows = Array.isArray(data) ? data : data?.items || [];
 
   const create = useMutation({
-    mutationFn: (body) => unwrap(api.post('/admin/outreach/templates', body)),
+    mutationFn: (body) => unwrap(editId ? api.patch(`/admin/manage/templates/${editId}`, body) : api.post('/admin/outreach/templates', body)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['templates'] });
-      toast.success('Template created');
+      toast.success(editId ? 'Template saved' : 'Template created');
       reset();
     },
     onError: (e) => toast.error(e.message || 'Create failed'),
   });
 
+  const remove = useMutation({
+    mutationFn: (id) => unwrap(api.delete(`/admin/manage/templates/${id}`)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['templates'] });
+      toast.success('Template deleted');
+    },
+    onError: (e) => toast.error(e.message || 'Delete failed'),
+  });
+  const openEdit = (t) => {
+    setEditId(String(t._id || t.id));
+    setName(t.name || '');
+    setChannel(t.channel || 'email');
+    setVariants((t.variants || []).length ? t.variants.map((v) => ({ label: v.label, subject: v.subject || '', body: v.body || '', weight: v.weight ?? 1 })) : [{ subject: '', body: '' }]);
+    setOpen(true);
+  };
   const reset = () => {
+    setEditId(null);
     setOpen(false);
     setName('');
     setChannel('email');
@@ -80,18 +97,27 @@ export default function Templates() {
                   {(t.variants || []).length} variant
                   {(t.variants || []).length === 1 ? '' : 's'}
                 </p>
-                {t.variants?.[0] && (
-                  <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">
-                    {t.variants[0].subject || t.variants[0].body}
-                  </p>
-                )}
+                {(t.variants || []).map((v, i) => (
+                  <div key={i} className="mt-2 rounded-md border border-border/60 p-2 text-sm">
+                    {v.subject && <p className="font-medium">{v.subject}</p>}
+                    <p className="line-clamp-4 whitespace-pre-wrap text-muted-foreground">{v.body}</p>
+                  </div>
+                ))}
+                <div className="mt-3 flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => openEdit(t)}>
+                    <Pencil size={14} aria-hidden="true" /> Edit
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => window.confirm(`Delete template "${t.name}"?`) && remove.mutate(String(t._id || t.id))} aria-label={`Delete ${t.name}`}>
+                    <Trash2 size={14} aria-hidden="true" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
 
-      <Dialog open={open} onClose={reset} title="New template" className="max-w-2xl">
+      <Dialog open={open} onClose={reset} title={editId ? 'Edit template' : 'New template'} className="max-w-2xl!">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -180,7 +206,7 @@ export default function Templates() {
               Cancel
             </Button>
             <Button type="submit" disabled={create.isPending}>
-              {create.isPending ? 'Creating…' : 'Create'}
+              {create.isPending ? 'Saving…' : editId ? 'Save' : 'Create'}
             </Button>
           </div>
         </form>

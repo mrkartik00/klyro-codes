@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Plus, Play, Pause, Search } from 'lucide-react';
+import { ArrowLeft, Plus, Play, Pause, Search, Pencil, Trash2, Square } from 'lucide-react';
 import api, { unwrap } from '../lib/api.js';
 import { useToast } from '../hooks/useToast.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
@@ -98,6 +98,16 @@ export default function CampaignDetail() {
     onError: (e) => toast.error(e.message || 'Enroll failed'),
   });
 
+  const manage = useMutation({
+    mutationFn: ({ method, url, body }) => unwrap(api[method](`/admin/manage${url}`, body)),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries();
+      toast.success(v.done || 'Saved');
+      if (v.after) v.after();
+    },
+    onError: (e) => toast.error(e.message || 'Action failed'),
+  });
+
   if (detail.isLoading) {
     return (
       <div className="flex justify-center py-12">
@@ -128,6 +138,25 @@ export default function CampaignDetail() {
           <>
             <Button variant="secondary" onClick={() => navigate('/campaigns')}>
               <ArrowLeft size={16} aria-hidden="true" /> Back
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                const name = window.prompt('Campaign name', campaign.name);
+                if (name?.trim() && name.trim() !== campaign.name) manage.mutate({ method: 'patch', url: `/campaigns/${id}`, body: { name: name.trim() }, done: 'Renamed' });
+              }}
+            >
+              <Pencil size={16} aria-hidden="true" /> Rename
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                window.confirm('Delete this campaign? All active enrollments stop and their pending drafts are rejected.') &&
+                manage.mutate({ method: 'delete', url: `/campaigns/${id}`, done: 'Campaign deleted', after: () => navigate('/campaigns') })
+              }
+              aria-label="Delete campaign"
+            >
+              <Trash2 size={16} aria-hidden="true" />
             </Button>
             {live ? (
               <Button variant="secondary" onClick={() => setStatus.mutate('paused')} disabled={setStatus.isPending}>
@@ -175,6 +204,41 @@ export default function CampaignDetail() {
                         {s.order === 1 ? 'Sent first' : `${s.delayDays} business day${s.delayDays === 1 ? '' : 's'} after the previous step`}
                         {s.stopOnReply ? ' · stops on reply' : ''}
                       </p>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <Select
+                        aria-label={`Template for step ${s.order}`}
+                        value={String(s.templateId)}
+                        onChange={(e) => manage.mutate({ method: 'patch', url: `/steps/${idOf(s)}`, body: { templateId: e.target.value }, done: 'Step updated' })}
+                        className="h-8 w-36 text-xs"
+                      >
+                        {tplRows.map((t) => (
+                          <option key={idOf(t)} value={idOf(t)}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </Select>
+                      {s.order > 1 && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            const d = window.prompt('Business days after the previous step', String(s.delayDays ?? 0));
+                            if (d != null && d !== '' && !Number.isNaN(Number(d))) manage.mutate({ method: 'patch', url: `/steps/${idOf(s)}`, body: { delayDays: Number(d) }, done: 'Delay updated' });
+                          }}
+                          aria-label={`Change delay for step ${s.order}`}
+                        >
+                          <Pencil size={14} aria-hidden="true" />
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => window.confirm(`Remove step ${s.order}?`) && manage.mutate({ method: 'delete', url: `/steps/${idOf(s)}`, done: 'Step removed' })}
+                        aria-label={`Remove step ${s.order}`}
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                      </Button>
                     </div>
                   </li>
                 ))}
@@ -327,6 +391,7 @@ export default function CampaignDetail() {
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Step</th>
                   <th className="px-4 py-3">Next due</th>
+                  <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
@@ -342,6 +407,17 @@ export default function CampaignDetail() {
                     </td>
                     <td className="px-4 py-3">{e.currentStep}</td>
                     <td className="px-4 py-3 text-muted-foreground">{e.nextDueAt ? formatDate(e.nextDueAt) : '—'}</td>
+                    <td className="px-4 py-3 text-right">
+                      {e.status === 'active' ? (
+                        <Button size="sm" variant="ghost" onClick={() => manage.mutate({ method: 'patch', url: `/enrollments/${idOf(e)}`, body: { status: 'stopped' }, done: 'Stopped for this lead' })}>
+                          <Square size={14} aria-hidden="true" /> Stop
+                        </Button>
+                      ) : e.status === 'stopped' ? (
+                        <Button size="sm" variant="ghost" onClick={() => manage.mutate({ method: 'patch', url: `/enrollments/${idOf(e)}`, body: { status: 'active' }, done: 'Resumed for this lead' })}>
+                          <Play size={14} aria-hidden="true" /> Resume
+                        </Button>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>

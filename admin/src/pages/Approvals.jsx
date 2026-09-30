@@ -69,6 +69,23 @@ export default function Approvals() {
     onError: (e) => toast.error(e.message || 'Failed'),
   });
 
+  const saveDraft = useMutation({
+    mutationFn: ({ id, ...body }) => unwrap(api.patch(`/admin/manage/approvals/${id}`, body)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['approvals'] });
+      toast.success('Draft saved (still waiting for approval)');
+      setEditing(null);
+    },
+    onError: (e) => toast.error(e.message || 'Could not save draft'),
+  });
+  const removeDraft = useMutation({
+    mutationFn: (id) => unwrap(api.delete(`/admin/manage/approvals/${id}`)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['approvals'] });
+      toast.success('Draft deleted');
+    },
+    onError: (e) => toast.error(e.message || 'Could not delete draft'),
+  });
   const bulk = useMutation({
     mutationFn: ({ ids, decision }) =>
       unwrap(
@@ -220,6 +237,9 @@ export default function Approvals() {
                         >
                           Edit draft
                         </Button>
+                        <Button size="sm" variant="ghost" onClick={() => window.confirm('Delete this draft?') && removeDraft.mutate(id)} disabled={removeDraft.isPending}>
+                          Delete
+                        </Button>
                       </div>
                     </div>
                   </div>
@@ -233,8 +253,8 @@ export default function Approvals() {
       <Dialog
         open={!!editing}
         onClose={() => setEditing(null)}
-        title="Edit draft & approve"
-        className="max-w-2xl"
+        title="Edit draft"
+        className="max-w-2xl!"
       >
         <div className="space-y-4">
           <div>
@@ -257,6 +277,13 @@ export default function Approvals() {
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button variant="secondary" onClick={() => setEditing(null)}>
               Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={saveDraft.isPending}
+              onClick={() => saveDraft.mutate({ id: editing._id || editing.id, subject: draft.subject, body: draft.body })}
+            >
+              Save without approving
             </Button>
             <Button
               variant="success"

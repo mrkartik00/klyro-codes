@@ -60,6 +60,8 @@ export default function Leads() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_LEAD);
   const search = useDebounced(q);
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkStage, setBulkStage] = useState('');
 
   useEffect(() => setPage(1), [stage, platform, minScore, search]);
 
@@ -93,6 +95,31 @@ export default function Leads() {
     onError: (e) => toast.error(e.message || 'Could not add lead'),
   });
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const bulk = useMutation({
+    mutationFn: (body) => unwrap(api.post('/admin/manage/leads/bulk', { ids: [...selected], ...body })),
+    onSuccess: (d, v) => {
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      qc.invalidateQueries({ queryKey: ['approvals'] });
+      toast.success(v.action === 'delete' ? `Deleted ${selected.size} lead(s)` : v.action === 'stopOutreach' ? 'Outreach stopped' : `Updated ${d?.updated ?? 0} lead(s)`);
+      setSelected(new Set());
+      setBulkStage('');
+    },
+    onError: (e) => toast.error(e.message || 'Bulk action failed'),
+  });
+  const toggleOne = (id) =>
+    setSelected((s0) => {
+      const n = new Set(s0);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const allOnPage = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const toggleAll = () =>
+    setSelected((s0) => {
+      const n = new Set(s0);
+      rows.forEach((r) => (allOnPage ? n.delete(r.id) : n.add(r.id)));
+      return n;
+    });
 
   return (
     <div className="space-y-4">
@@ -138,6 +165,43 @@ export default function Leads() {
         </div>
       </div>
 
+      {selected.size > 0 && (
+        <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-card p-3 text-sm shadow-lg" role="region" aria-label="Bulk actions">
+          <span className="font-medium">{selected.size} selected</span>
+          <Select aria-label="Set stage for selected" value={bulkStage} onChange={(e) => setBulkStage(e.target.value)} className="w-40 capitalize">
+            <option value="">Set stage…</option>
+            {LEAD_STAGES.map((s0) => (
+              <option key={s0} value={s0}>
+                {s0}
+              </option>
+            ))}
+          </Select>
+          <Button size="sm" variant="secondary" disabled={!bulkStage || bulk.isPending} onClick={() => bulk.mutate({ action: 'stage', stage: bulkStage })}>
+            Apply
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={bulk.isPending}
+            onClick={() => {
+              const tag = window.prompt('Tag to add to the selected leads');
+              if (tag?.trim()) bulk.mutate({ action: 'tag', tag: tag.trim() });
+            }}
+          >
+            Add tag
+          </Button>
+          <Button size="sm" variant="secondary" disabled={bulk.isPending} onClick={() => window.confirm(`Stop outreach to ${selected.size} lead(s)?`) && bulk.mutate({ action: 'stopOutreach' })}>
+            Stop outreach
+          </Button>
+          <Button size="sm" variant="destructive" disabled={bulk.isPending} onClick={() => window.confirm(`Delete ${selected.size} lead(s)? Their outreach stops.`) && bulk.mutate({ action: 'delete' })}>
+            Delete
+          </Button>
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setSelected(new Set())}>
+            Clear
+          </Button>
+        </div>
+      )}
+
       <Card className="overflow-hidden">
         {isLoading ? (
           <div className="flex justify-center py-12">
@@ -168,6 +232,9 @@ export default function Leads() {
             <table className="w-full min-w-[720px] text-sm [&_th]:whitespace-nowrap">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="w-10 px-4 py-3">
+                    <input type="checkbox" aria-label="Select all on this page" checked={allOnPage} onChange={toggleAll} className="size-4 accent-[var(--color-primary)]" />
+                  </th>
                   <th className="px-4 py-3">Business</th>
                   <th className="px-4 py-3">Contact</th>
                   <th className="px-4 py-3">Stage</th>
@@ -184,6 +251,16 @@ export default function Leads() {
                     onKeyDown={(e) => (e.key === 'Enter' ? navigate(`/leads/${r.id}`) : null)}
                     className="cursor-pointer border-b border-border/60 transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
                   >
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${r.name}`}
+                        checked={selected.has(r.id)}
+                        onChange={() => toggleOne(r.id)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="size-4 accent-[var(--color-primary)]"
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <p className="font-medium">{r.name}</p>
                       <p className="max-w-[22rem] truncate text-xs text-muted-foreground">{r.need || r.place || r.domain || r.handle || '—'}</p>

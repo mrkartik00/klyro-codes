@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ExternalLink, Mail, Phone, MapPin, Star } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Mail, Phone, MapPin, Star, Pencil, Trash2, Ban } from 'lucide-react';
+import { Dialog } from '../components/ui/Dialog.jsx';
 import { LEAD_STAGES } from '@klyro/shared/enums';
 import api, { unwrap } from '../lib/api.js';
 import { useToast } from '../hooks/useToast.jsx';
@@ -95,6 +96,8 @@ export default function LeadDetail() {
   const [tags, setTags] = useState('');
   const [notes, setNotes] = useState('');
   const [stage, setStage] = useState('');
+  const [editOpen, setEditOpen] = useState(false);
+  const [edit, setEdit] = useState({});
 
   useEffect(() => {
     if (lead) {
@@ -113,6 +116,52 @@ export default function LeadDetail() {
     },
     onError: (e) => toast.error(e.message || 'Update failed'),
   });
+
+  const saveDetails = useMutation({
+    mutationFn: (body) => unwrap(api.patch(`/admin/manage/leads/${id}`, body)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['lead', id] });
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      toast.success('Details saved');
+      setEditOpen(false);
+    },
+    onError: (e) => toast.error(e.message || 'Save failed'),
+  });
+  const removeLead = useMutation({
+    mutationFn: () => unwrap(api.delete(`/admin/manage/leads/${id}`)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      toast.success('Lead deleted — its outreach was stopped');
+      navigate('/leads');
+    },
+    onError: (e) => toast.error(e.message || 'Delete failed'),
+  });
+  const stopOutreach = useMutation({
+    mutationFn: () => unwrap(api.post('/admin/manage/leads/bulk', { ids: [id], action: 'stopOutreach' })),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['lead', id] });
+      qc.invalidateQueries({ queryKey: ['approvals'] });
+      toast.success('Outreach stopped: campaigns halted, pending drafts rejected');
+    },
+    onError: (e) => toast.error(e.message || 'Could not stop outreach'),
+  });
+  const openEdit = () => {
+    setEdit({
+      name: org.name || '',
+      domain: org.domain || '',
+      phone: org.phone || '',
+      address: org.address || '',
+      city: org.city || '',
+      country: org.country || '',
+      category: org.category || '',
+      contactName: contact.name || '',
+      contactEmail: contact.email || '',
+      contactPhone: contact.phone || '',
+      contactTitle: contact.title || '',
+    });
+    setEditOpen(true);
+  };
+  const setE = (k) => (e) => setEdit((x) => ({ ...x, [k]: e.target.value }));
 
   if (isLoading) {
     return (
@@ -136,9 +185,18 @@ export default function LeadDetail() {
         title={org.name || 'Lead'}
         description={[org.category, org.city, org.country].filter(Boolean).join(' · ')}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge variant="primary">{lead.stage || 'new'}</Badge>
             <Badge>score {lead.score ?? 0}</Badge>
+            <Button size="sm" variant="secondary" onClick={openEdit}>
+              <Pencil size={14} aria-hidden="true" /> Edit details
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => window.confirm('Stop all outreach to this lead? Active campaigns stop and pending drafts are rejected.') && stopOutreach.mutate()} disabled={stopOutreach.isPending}>
+              <Ban size={14} aria-hidden="true" /> Stop outreach
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => window.confirm('Delete this lead? Outreach to it stops.') && removeLead.mutate()} disabled={removeLead.isPending} aria-label="Delete lead">
+              <Trash2 size={14} aria-hidden="true" />
+            </Button>
           </div>
         }
       />
@@ -337,6 +395,58 @@ export default function LeadDetail() {
           </CardContent>
         </Card>
       </div>
+      <Dialog open={editOpen} onClose={() => setEditOpen(false)} title="Edit lead details" className="max-w-2xl!">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveDetails.mutate({
+              organization: { name: edit.name, domain: edit.domain || null, phone: edit.phone || null, address: edit.address || null, city: edit.city || null, country: edit.country || null, category: edit.category || null },
+              contact: { name: edit.contactName || null, email: edit.contactEmail || '', phone: edit.contactPhone || null, title: edit.contactTitle || null },
+            });
+          }}
+        >
+          <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <legend className="mb-2 text-sm font-semibold">Business</legend>
+            {[
+              ['name', 'Name'],
+              ['domain', 'Website'],
+              ['phone', 'Phone'],
+              ['category', 'Category'],
+              ['address', 'Address'],
+              ['city', 'City'],
+              ['country', 'Country (2 letters)'],
+            ].map(([k, label]) => (
+              <div key={k}>
+                <Label htmlFor={`e-${k}`}>{label}</Label>
+                <Input id={`e-${k}`} value={edit[k] ?? ''} onChange={setE(k)} required={k === 'name'} />
+              </div>
+            ))}
+          </fieldset>
+          <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <legend className="mb-2 text-sm font-semibold">Main contact</legend>
+            {[
+              ['contactName', 'Name'],
+              ['contactEmail', 'Email', 'email'],
+              ['contactPhone', 'Phone'],
+              ['contactTitle', 'Job title'],
+            ].map(([k, label, type]) => (
+              <div key={k}>
+                <Label htmlFor={`e-${k}`}>{label}</Label>
+                <Input id={`e-${k}`} type={type || 'text'} value={edit[k] ?? ''} onChange={setE(k)} />
+              </div>
+            ))}
+          </fieldset>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="secondary" onClick={() => setEditOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saveDetails.isPending}>
+              {saveDetails.isPending ? 'Saving…' : 'Save details'}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
     </div>
   );
 }

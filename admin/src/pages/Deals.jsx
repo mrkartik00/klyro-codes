@@ -16,7 +16,9 @@ import api, { unwrap } from '../lib/api.js';
 import { useToast } from '../hooks/useToast.jsx';
 import { formatMoney, classNames as cn } from '../lib/format.js';
 import { PageHeader } from '../components/PageHeader.jsx';
-import { Button, Spinner, EmptyState } from '../components/ui/index.jsx';
+import { Button, Spinner, EmptyState, Input, Label, Select, Textarea, Badge } from '../components/ui/index.jsx';
+import { Dialog } from '../components/ui/Dialog.jsx';
+import { formatDate } from '../lib/format.js';
 
 import { dealValueMinor } from '../lib/drafts.js';
 
@@ -27,7 +29,7 @@ function dealMoney(deal) {
 
 const dealId = (d) => d._id || d.id;
 
-function DealCard({ deal, onMove, stages }) {
+function DealCard({ deal, onMove, stages, onOpen }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dealId(deal),
     data: { deal },
@@ -63,9 +65,9 @@ function DealCard({ deal, onMove, stages }) {
           </svg>
         </button>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">
+          <button type="button" onClick={() => onOpen(deal)} className="block w-full truncate text-left text-sm font-medium hover:underline">
             {deal.title || deal.companyName || deal.name || 'Deal'}
-          </p>
+          </button>
           {value && <p className="mt-1 text-xs text-muted-foreground">{value}</p>}
         </div>
       </div>
@@ -94,7 +96,7 @@ function DealCard({ deal, onMove, stages }) {
   );
 }
 
-function Column({ stage, deals, onMove, stages }) {
+function Column({ stage, deals, onMove, stages, onOpen }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   return (
     <section aria-label={`${stage} stage`} className="flex w-[78vw] max-w-[18rem] shrink-0 snap-start flex-col sm:w-72">
@@ -115,14 +117,157 @@ function Column({ stage, deals, onMove, stages }) {
           <p className="px-2 py-6 text-center text-xs text-muted-foreground">No deals</p>
         )}
         {deals.map((d) => (
-          <DealCard key={dealId(d)} deal={d} onMove={onMove} stages={stages} />
+          <DealCard key={dealId(d)} deal={d} onMove={onMove} stages={stages} onOpen={onOpen} />
         ))}
       </div>
     </section>
   );
 }
 
+/** Everything about one deal, editable. */
+function DealDialog({ deal, onClose }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const id = deal && dealId(deal);
+  const [f, setF] = useState({});
+  useEffect(() => {
+    if (deal) {
+      setF({
+        title: deal.title || '',
+        amount: ((deal.value?.amountMinor ?? 0) / 100).toString(),
+        currency: deal.value?.currency || 'USD',
+        stage: deal.stage || 'new',
+        lostReason: deal.lostReason || '',
+      });
+    }
+  }, [deal]);
+  const quotes = useQuery({
+    queryKey: ['deal-quotes', id],
+    queryFn: () => unwrap(api.get(`/admin/deals/${id}/quotations`)),
+    enabled: Boolean(id),
+  });
+  const save = useMutation({
+    mutationFn: (body) => unwrap(api.patch(`/admin/manage/deals/${id}`, body)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['deals-board'] });
+      toast.success('Deal saved');
+      onClose();
+    },
+    onError: (e) => toast.error(e.message || 'Save failed'),
+  });
+  const remove = useMutation({
+    mutationFn: () => unwrap(api.delete(`/admin/manage/deals/${id}`)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['deals-board'] });
+      toast.success('Deal deleted');
+      onClose();
+    },
+    onError: (e) => toast.error(e.message || 'Delete failed'),
+  });
+  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const qRows = Array.isArray(quotes.data) ? quotes.data : quotes.data?.items || [];
+  return (
+    <Dialog open={Boolean(deal)} onClose={onClose} title="Deal" className="max-w-2xl!">
+      {deal && (
+        <form
+          className="space-y-4 text-sm"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate({
+              title: f.title.trim(),
+              stage: f.stage,
+              value: { amountMinor: Math.round(Number(f.amount || 0) * 100), currency: f.currency },
+              ...(f.stage === 'lost' ? { lostReason: f.lostReason } : {}),
+            });
+          }}
+        >
+          <div>
+            <Label htmlFor="d-title">Title</Label>
+            <Input id="d-title" required value={f.title ?? ''} onChange={set('title')} />
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <Label htmlFor="d-amount">Value</Label>
+              <Input id="d-amount" type="number" min="0" step="0.01" inputMode="decimal" value={f.amount ?? ''} onChange={set('amount')} />
+            </div>
+            <div>
+              <Label htmlFor="d-cur">Currency</Label>
+              <Select id="d-cur" value={f.currency} onChange={set('currency')}>
+                {['USD', 'GBP', 'INR'].map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="d-stage">Stage</Label>
+              <Select id="d-stage" value={f.stage} onChange={set('stage')} className="capitalize">
+                {DEAL_STAGES.map((s0) => (
+                  <option key={s0} value={s0}>
+                    {s0}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          {f.stage === 'lost' && (
+            <div>
+              <Label htmlFor="d-lost">Why lost</Label>
+              <Textarea id="d-lost" rows={2} value={f.lostReason ?? ''} onChange={set('lostReason')} />
+            </div>
+          )}
+          <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+            {deal.leadId && (
+              <Link to={`/leads/${deal.leadId?._id || deal.leadId}`} className="text-primary hover:underline">
+                Open lead
+              </Link>
+            )}
+            {deal.source && <span>Source: {deal.source}</span>}
+            <span>Created {formatDate(deal.createdAt)}</span>
+            {deal.clientUserId && <Badge variant="success">client portal linked</Badge>}
+          </div>
+          <section>
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="font-semibold">Quotations</h3>
+              <Link to={`/quotations?deal=${id}`} className="text-xs text-primary hover:underline">
+                New quote
+              </Link>
+            </div>
+            {qRows.length === 0 ? (
+              <p className="text-muted-foreground">None yet.</p>
+            ) : (
+              <ul className="divide-y divide-border rounded-lg border border-border">
+                {qRows.map((q) => (
+                  <li key={q._id} className="flex items-center justify-between px-3 py-2">
+                    <span>
+                      v{q.version} · {formatMoney(q.totalMinor, q.currency)}
+                    </span>
+                    <Badge>{q.status}</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+            <Button type="button" variant="ghost" onClick={() => window.confirm('Delete this deal and its quotations?') && remove.mutate()} disabled={remove.isPending}>
+              Delete deal
+            </Button>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+              <Button type="button" variant="secondary" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={save.isPending}>
+                {save.isPending ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </form>
+      )}
+    </Dialog>
+  );
+}
+
 export default function Deals() {
+  const [openDeal, setOpenDeal] = useState(null);
   const qc = useQueryClient();
   const toast = useToast();
   const sensors = useSensors(
@@ -224,11 +369,12 @@ export default function Deals() {
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
           <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain px-4 pb-4 sm:mx-0 sm:snap-none sm:gap-4 sm:px-0">
             {stages.map((stage) => (
-              <Column key={stage} stage={stage} deals={board[stage] || []} onMove={moveDeal} stages={stages} />
+              <Column key={stage} stage={stage} deals={board[stage] || []} onMove={moveDeal} stages={stages} onOpen={setOpenDeal} />
             ))}
           </div>
         </DndContext>
       )}
+      <DealDialog deal={openDeal} onClose={() => setOpenDeal(null)} />
     </div>
   );
 }

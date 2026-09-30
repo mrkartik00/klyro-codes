@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Send, Copy } from 'lucide-react';
+import { Plus, Trash2, Send, Copy, Pencil } from 'lucide-react';
 import { CURRENCIES } from '@klyro/shared/enums';
 import api, { unwrap } from '../lib/api.js';
 import { useToast } from '../hooks/useToast.jsx';
@@ -41,6 +41,7 @@ export default function Quotations() {
   const [tax, setTax] = useState(0);
   const [validDays, setValidDays] = useState(14);
   const [lines, setLines] = useState([emptyLine()]);
+  const [editQuoteId, setEditQuoteId] = useState(null);
 
   const { data: dealsData, isLoading: dealsLoading } = useQuery({
     queryKey: ['deals', 'all'],
@@ -61,20 +62,15 @@ export default function Quotations() {
 
   const create = useMutation({
     // validUntil is computed at submit time (inside the mutation), not render.
-    mutationFn: (days) =>
-      unwrap(
-        api.post(`/admin/deals/${dealId}/quotations`, {
-          currency,
-          items,
-          discountPercent: Number(discount) || 0,
-          taxPercent: Number(tax) || 0,
-          validUntil: isoInDays(days),
-        }),
-      ),
+    mutationFn: (days) => {
+      const body = { currency, items, discountPercent: Number(discount) || 0, taxPercent: Number(tax) || 0, validUntil: isoInDays(days) };
+      return unwrap(editQuoteId ? api.patch(`/admin/manage/quotations/${editQuoteId}`, body) : api.post(`/admin/deals/${dealId}/quotations`, body));
+    },
     onSuccess: () => {
       refresh();
-      toast.success('Draft quotation saved — review it below, then Send');
+      toast.success(editQuoteId ? 'Draft updated' : 'Draft quotation saved — review it below, then Send');
       setLines([emptyLine()]);
+      setEditQuoteId(null);
     },
     onError: (e) => toast.error(e.message || 'Could not create quotation'),
   });
@@ -87,6 +83,22 @@ export default function Quotations() {
     onError: (e) => toast.error(e.message || 'Send failed'),
   });
 
+  const removeQuote = useMutation({
+    mutationFn: (id) => unwrap(api.delete(`/admin/manage/quotations/${id}`)),
+    onSuccess: () => {
+      refresh();
+      toast.success('Quotation deleted');
+    },
+    onError: (e) => toast.error(e.message || 'Delete failed'),
+  });
+  const editQuote = (q) => {
+    setEditQuoteId(idOf(q));
+    setCurrency(q.currency || 'USD');
+    setDiscount(q.discountPercent ?? 0);
+    setTax(q.taxPercent ?? 0);
+    setLines((q.items || []).map((i) => ({ description: i.description, quantity: i.quantity ?? 1, unitPrice: String((i.unitAmountMinor ?? 0) / 100) })));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
   const updateLine = (i, patch) => setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   const copyLink = async (id) => {
     const url = `${PORTAL}/quotes/${id}`;
@@ -202,8 +214,19 @@ export default function Quotations() {
               <span className="font-semibold">Total {formatMoney(total, currency)}</span>
             </div>
             <Button disabled={!dealId || !items.length || create.isPending} onClick={() => create.mutate(Number(validDays) || 14)}>
-              {create.isPending ? 'Saving…' : 'Save draft quote'}
+              {create.isPending ? 'Saving…' : editQuoteId ? 'Save changes' : 'Save draft quote'}
             </Button>
+            {editQuoteId && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setEditQuoteId(null);
+                  setLines([emptyLine()]);
+                }}
+              >
+                Cancel edit
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -228,7 +251,16 @@ export default function Quotations() {
                         <p className="font-medium">
                           v{q.version ?? 1} · {formatMoney(q.totalMinor ?? 0, q.currency || 'USD')}
                         </p>
+                        <ul className="mt-1 text-xs text-muted-foreground">
+                          {(q.items || []).map((i, n) => (
+                            <li key={n}>
+                              {i.quantity ?? 1} × {i.description} — {formatMoney(i.unitAmountMinor ?? 0, q.currency || 'USD')}
+                            </li>
+                          ))}
+                        </ul>
                         <p className="text-xs text-muted-foreground">
+                          {q.discountPercent ? `discount ${q.discountPercent}% · ` : ''}
+                          {q.taxPercent ? `tax ${q.taxPercent}% · ` : ''}
                           {(q.items || []).length} item{(q.items || []).length === 1 ? '' : 's'}
                           {q.validUntil ? ` · valid until ${formatDate(q.validUntil)}` : ''}
                         </p>
@@ -238,6 +270,16 @@ export default function Quotations() {
                         {['draft', 'sent'].includes(q.status) && (
                           <Button size="sm" onClick={() => send.mutate(qid)} disabled={send.isPending && send.variables === qid}>
                             <Send size={14} aria-hidden="true" /> {q.status === 'draft' ? 'Send' : 'Resend'}
+                          </Button>
+                        )}
+                        {q.status === 'draft' && (
+                          <Button size="sm" variant="secondary" onClick={() => editQuote(q)}>
+                            <Pencil size={14} aria-hidden="true" /> Edit
+                          </Button>
+                        )}
+                        {q.status !== 'accepted' && (
+                          <Button size="sm" variant="ghost" onClick={() => window.confirm('Delete this quotation?') && removeQuote.mutate(qid)} aria-label="Delete quotation">
+                            <Trash2 size={14} aria-hidden="true" />
                           </Button>
                         )}
                         <Button size="sm" variant="secondary" onClick={() => copyLink(qid)} aria-label="Copy client link">
