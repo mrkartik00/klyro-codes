@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Check, X } from 'lucide-react';
+import { Check, X, Copy, ExternalLink } from 'lucide-react';
 import api, { unwrap } from '../lib/api.js';
 import { useToast } from '../hooks/useToast.jsx';
 import { formatDate } from '../lib/format.js';
@@ -20,9 +20,28 @@ import {
 
 import { draftOf } from '../lib/drafts.js';
 
+const MANUAL = new Set(['reddit', 'linkedin', 'x', 'instagram']);
+const CH_LABEL = { reddit: 'Reddit reply', linkedin: 'LinkedIn', x: 'X DM', instagram: 'Instagram DM' };
+const manual = (item) => MANUAL.has(item.channel);
+/** Where to go to post/send a manual message. */
+const targetUrl = (item) =>
+  item.channel === 'reddit'
+    ? item.draft?.personalizationNotes?.startsWith('http')
+      ? item.draft.personalizationNotes
+      : item.sourceUrl
+    : item.socials?.[item.channel] || item.sourceUrl || null;
+
 export default function Approvals() {
   const qc = useQueryClient();
   const toast = useToast();
+  const copyText = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text || '');
+      toast.success('Copied — paste it on the platform');
+    } catch {
+      toast.error('Copy failed — select the text manually');
+    }
+  };
   const [selected, setSelected] = useState(new Set());
   const [editing, setEditing] = useState(null);
   const [draft, setDraft] = useState({ subject: '', body: '' });
@@ -141,35 +160,58 @@ export default function Approvals() {
                         <span className="min-w-0 truncate font-medium">
                           {item.leadName || item.to || item.recipient || `Step ${item.stepOrder ?? ''}`.trim() || 'Recipient'}
                         </span>
-                        <Badge>Step {item.stepOrder ?? 1}</Badge>
+                        {manual(item) ? (
+                          <Badge variant="warning">{CH_LABEL[item.channel] || item.channel} · post it yourself</Badge>
+                        ) : (
+                          <Badge>Email · step {item.stepOrder ?? 1}</Badge>
+                        )}
                         <span className="text-xs text-muted-foreground">
                           {formatDate(item.createdAt)}
                         </span>
                       </div>
-                      {(item.to || item.website) && (
+                      {!manual(item) && (item.to || item.website) && (
                         <p className="mb-1 break-all text-xs text-muted-foreground">
                           {item.to ? `To ${item.to}` : 'No email yet'}
                           {item.website ? ` · ${item.website}` : ''}
                         </p>
                       )}
-                      {d.subject && <p className="text-sm font-medium break-words">{d.subject}</p>}
+                      {manual(item) && item.handles?.[item.channel] && (
+                        <p className="mb-1 text-xs text-muted-foreground">To {item.handles[item.channel]}</p>
+                      )}
+                      {d.subject && !manual(item) && <p className="text-sm font-medium break-words">{d.subject}</p>}
+                      {d.subject && item.channel === 'reddit' && <p className="text-sm font-medium break-words">Post: {d.subject}</p>}
                       <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">
                         {d.body || '—'}
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
+                        {manual(item) && targetUrl(item) && (
+                          <a
+                            href={targetUrl(item)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex min-h-[2.25rem] items-center gap-1 rounded-lg border border-border px-3 text-sm hover:bg-muted"
+                          >
+                            <ExternalLink size={14} aria-hidden="true" /> {item.channel === 'reddit' ? 'Open post' : 'Open profile'}
+                          </a>
+                        )}
+                        {manual(item) && (
+                          <Button size="sm" variant="secondary" onClick={() => copyText(d.body)}>
+                            <Copy size={14} aria-hidden="true" /> Copy text
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="success"
                           onClick={() => decide.mutate({ id, decision: 'approve' })}
                         >
-                          <Check size={14} /> Approve
+                          <Check size={14} /> {manual(item) ? 'Mark as done' : 'Approve'}
                         </Button>
                         <Button
                           size="sm"
                           variant="destructive"
                           onClick={() => decide.mutate({ id, decision: 'reject' })}
                         >
-                          <X size={14} /> Reject
+                          <X size={14} /> {manual(item) ? 'Skip' : 'Reject'}
                         </Button>
                         <Button
                           size="sm"

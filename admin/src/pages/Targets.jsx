@@ -8,7 +8,7 @@ import { PageHeader } from '../components/PageHeader.jsx';
 import { Dialog } from '../components/ui/Dialog.jsx';
 import { Card, Button, Input, Label, Select, Badge, Spinner, EmptyState, Textarea } from '../components/ui/index.jsx';
 
-const EMPTY = { name: '', categories: '', cities: '', country: 'US', maxResults: 100, hasWebsite: 'any', minRating: '' };
+const EMPTY = { source: 'maps', name: '', categories: '', cities: '', country: 'US', maxResults: 100, hasWebsite: 'any', minRating: '', communities: 'smallbusiness, Entrepreneur, startups, web_design, forhire', keywords: 'need a website, looking for a developer, build an app, website for my business', minIntent: 55, maxAgeDays: 14 };
 const RUNNING = new Set(['queued', 'running', 'ingesting']);
 const JOB_TONE = { queued: 'default', running: 'warning', ingesting: 'warning', enriched: 'success', failed: 'destructive' };
 
@@ -20,6 +20,18 @@ const splitList = (s) =>
 
 /** Build the API payload from the simple form. */
 export function targetPayload(form) {
+  if (form.source === 'reddit') {
+    const communities = splitList(form.communities).map((c) => c.replace(/^\/?r\//i, ''));
+    const keywords = splitList(form.keywords);
+    return {
+      source: 'reddit',
+      name: form.name.trim() || `Reddit: ${keywords.slice(0, 2).join(', ')}`,
+      communities,
+      keywords,
+      maxResults: Math.min(Math.max(Number(form.maxResults) || 50, 1), 500),
+      filters: { minIntent: Math.min(Math.max(Number(form.minIntent) || 55, 10), 95) / 100, maxAgeDays: Math.min(Math.max(Number(form.maxAgeDays) || 14, 1), 90) },
+    };
+  }
   const categories = splitList(form.categories);
   const cities = splitList(form.cities);
   const filters = { excludeChains: true };
@@ -93,13 +105,13 @@ export default function Targets() {
   });
 
   const payload = targetPayload(form);
-  const canSave = payload.categories.length > 0;
+  const canSave = form.source === 'reddit' ? payload.keywords.length > 0 && payload.communities.length > 0 : payload.categories.length > 0;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Lead Sources"
-        description="Find businesses on Google Maps, or import your own list."
+        description="Find businesses on Google Maps, people asking for help on Reddit, or import your own list."
         actions={
           <>
             <Button variant="secondary" onClick={() => setCsvOpen(true)}>
@@ -131,9 +143,9 @@ export default function Targets() {
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-4 py-3">Search</th>
-                  <th className="px-4 py-3">Business types</th>
-                  <th className="px-4 py-3">Cities</th>
-                  <th className="px-4 py-3">Country</th>
+                  <th className="px-4 py-3">Source</th>
+                  <th className="px-4 py-3">Looking for</th>
+                  <th className="px-4 py-3">Where</th>
                   <th className="px-4 py-3">Max</th>
                   <th className="px-4 py-3 text-right">Action</th>
                 </tr>
@@ -144,9 +156,15 @@ export default function Targets() {
                   return (
                     <tr key={id} className="border-b border-border/60">
                       <td className="px-4 py-3 font-medium">{t.name}</td>
-                      <td className="px-4 py-3">{[...(t.categories || []), ...(t.keywords || [])].join(', ') || '—'}</td>
-                      <td className="px-4 py-3">{(t.cities || []).join(', ') || 'Whole country'}</td>
-                      <td className="px-4 py-3">{t.country}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant={t.source === 'reddit' ? 'warning' : 'primary'}>{t.source === 'reddit' ? 'Reddit' : 'Google Maps'}</Badge>
+                      </td>
+                      <td className="max-w-[16rem] truncate px-4 py-3">{[...(t.categories || []), ...(t.keywords || [])].join(', ') || '—'}</td>
+                      <td className="max-w-[14rem] truncate px-4 py-3">
+                        {t.source === 'reddit'
+                          ? (t.communities || []).map((c) => `r/${c}`).join(', ') || 'r/smallbusiness'
+                          : `${(t.cities || []).join(', ') || 'Whole country'} · ${t.country}`}
+                      </td>
                       <td className="px-4 py-3">{t.maxResults}</td>
                       <td className="px-4 py-3 text-right">
                         <Button
@@ -217,7 +235,7 @@ export default function Targets() {
         )}
       </Card>
 
-      <Dialog open={open} onClose={() => setOpen(false)} title="New Google Maps search">
+      <Dialog open={open} onClose={() => setOpen(false)} title="New lead search">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -225,6 +243,57 @@ export default function Targets() {
           }}
           className="space-y-4"
         >
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium">Where to look</legend>
+            <div className="grid grid-cols-2 gap-2" role="radiogroup">
+              {[
+                ['maps', 'Google Maps', 'Local businesses by type & city'],
+                ['reddit', 'Reddit', 'People asking for a website/app'],
+              ].map(([v, label, hint]) => (
+                <label
+                  key={v}
+                  className={`cursor-pointer rounded-lg border p-3 text-sm transition-colors ${form.source === v ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted'}`}
+                >
+                  <input type="radio" name="source" value={v} checked={form.source === v} onChange={set('source')} className="sr-only" />
+                  <span className="block font-medium">{label}</span>
+                  <span className="block text-xs text-muted-foreground">{hint}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          {form.source === 'reddit' ? (
+            <>
+              <div>
+                <Label htmlFor="keywords">Phrases people use *</Label>
+                <Textarea id="keywords" rows={2} value={form.keywords} onChange={set('keywords')} />
+                <p className="mt-1 text-xs text-muted-foreground">Comma-separated. Each phrase is searched in each subreddit.</p>
+              </div>
+              <div>
+                <Label htmlFor="communities">Subreddits *</Label>
+                <Input id="communities" value={form.communities} onChange={set('communities')} placeholder="smallbusiness, Entrepreneur" />
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                  <Label htmlFor="minIntent">Min buying intent %</Label>
+                  <Input id="minIntent" type="number" min="10" max="95" inputMode="numeric" value={form.minIntent} onChange={set('minIntent')} />
+                </div>
+                <div>
+                  <Label htmlFor="maxAgeDays">Posts from last (days)</Label>
+                  <Input id="maxAgeDays" type="number" min="1" max="90" inputMode="numeric" value={form.maxAgeDays} onChange={set('maxAgeDays')} />
+                </div>
+                <div>
+                  <Label htmlFor="maxResultsR">Max leads per run</Label>
+                  <Input id="maxResultsR" type="number" min="1" max="500" inputMode="numeric" value={form.maxResults} onChange={set('maxResults')} />
+                </div>
+              </div>
+              <p className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+                Runs automatically every 30 minutes once saved. AI reads each post, keeps real buyers, and drafts a helpful reply
+                for you to post yourself (Approvals). Leads include the post link and the author&apos;s profile.
+              </p>
+            </>
+          ) : (
+          <>
           <div>
             <Label htmlFor="categories">Business types *</Label>
             <Input id="categories" required value={form.categories} onChange={set('categories')} placeholder="dentist, plumber" />
@@ -261,6 +330,8 @@ export default function Targets() {
               <Input id="maxResults" type="number" min="1" max="1000" inputMode="numeric" value={form.maxResults} onChange={set('maxResults')} />
             </div>
           </div>
+          </>
+          )}
           <div>
             <Label htmlFor="name">Name (optional)</Label>
             <Input id="name" value={form.name} onChange={set('name')} placeholder={payload.name || 'Austin dentists'} />

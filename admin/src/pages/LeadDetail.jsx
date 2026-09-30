@@ -24,6 +24,57 @@ const ISSUE_LABEL = {
 };
 const EMAIL_TONE = { valid: 'success', risky: 'warning', invalid: 'destructive', unknown: 'default' };
 
+const CHANNEL_LABEL = { linkedin: 'LinkedIn', x: 'X (Twitter)', reddit: 'Reddit', instagram: 'Instagram', facebook: 'Facebook', youtube: 'YouTube', tiktok: 'TikTok' };
+
+/** Every way to reach this lead, each with Open + Copy — so you can contact them yourself. */
+function ContactChannels({ org, contact, lead, website }) {
+  const toast = useToast();
+  const plain = (o) => (o && typeof o === 'object' ? Object.fromEntries(Object.entries(o).filter(([k, v]) => v && !k.startsWith('_'))) : {});
+  const socials = { ...plain(org.socials), ...plain(contact.socials) };
+  if (contact.linkedinUrl && !socials.linkedin) socials.linkedin = contact.linkedinUrl;
+  const handles = plain(contact.handles);
+  const rows = [];
+  if (contact.email) rows.push({ label: 'Email', value: contact.email, href: `mailto:${contact.email}` });
+  if (contact.phone || org.phone) rows.push({ label: 'Phone', value: contact.phone || org.phone, href: `tel:${contact.phone || org.phone}` });
+  if (website) rows.push({ label: 'Website', value: org.domain || website, href: website });
+  for (const [k, url] of Object.entries(socials)) rows.push({ label: CHANNEL_LABEL[k] || k, value: handles[k] || url.replace(/^https?:\/\/(www\.)?/, ''), href: url });
+  if (lead.sourceUrl && !rows.some((r) => r.href === lead.sourceUrl)) rows.push({ label: 'Found at', value: lead.sourceUrl.replace(/^https?:\/\/(www\.)?/, ''), href: lead.sourceUrl });
+
+  const copy = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success('Copied');
+    } catch {
+      toast.error('Copy failed');
+    }
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <h3 className="mb-3 text-base font-semibold">Contact channels</h3>
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No contact details yet. Add a link or email in Notes, or re-run enrichment.</p>
+        ) : (
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {rows.map((r) => (
+              <li key={`${r.label}-${r.href}`} className="flex items-center gap-3 px-3 py-2">
+                <span className="w-24 shrink-0 text-xs text-muted-foreground">{r.label}</span>
+                <a href={r.href} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate text-sm text-primary hover:underline">
+                  {r.value}
+                </a>
+                <Button size="sm" variant="ghost" onClick={() => copy(r.value.startsWith('http') ? r.href : r.value)} aria-label={`Copy ${r.label}`}>
+                  Copy
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function LeadDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -141,6 +192,37 @@ export default function LeadDetail() {
               </div>
             </CardContent>
           </Card>
+
+          <ContactChannels org={org} contact={contact} lead={lead} website={website} />
+
+          {lead.intent?.externalId && (
+            <Card>
+              <CardContent className="space-y-3 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-base font-semibold">Where we found them</h3>
+                  <Badge variant="warning">
+                    {lead.intent.community} · intent {Math.round((lead.intent.score ?? 0) * 100)}%
+                  </Badge>
+                </div>
+                <p className="text-sm font-medium">{lead.intent.title}</p>
+                {lead.intent.need && <p className="text-sm text-muted-foreground">Needs: {lead.intent.need}</p>}
+                {lead.intent.text && (
+                  <blockquote className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                    {lead.intent.text}
+                  </blockquote>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Posted by {lead.intent.author}
+                  {lead.intent.postedAt ? ` · ${formatDate(lead.intent.postedAt)}` : ''}
+                </p>
+                {lead.sourceUrl && (
+                  <a href={lead.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 text-sm text-primary hover:underline">
+                    <ExternalLink size={14} aria-hidden="true" /> Open the post
+                  </a>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {audit && (
             <Card>

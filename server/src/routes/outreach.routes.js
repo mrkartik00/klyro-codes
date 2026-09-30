@@ -143,6 +143,9 @@ outreachRouter.get(
         to: l?.primaryContactId?.email ?? null,
         website: l?.organizationId?.domain ?? null,
         score: l?.score ?? null,
+        sourceUrl: l?.sourceUrl ?? null,
+        socials: { ...(l?.organizationId?.socials ?? {}), ...(l?.primaryContactId?.socials ?? {}) },
+        handles: l?.primaryContactId?.handles ?? {},
       };
     });
     return ok(res, items, result.meta);

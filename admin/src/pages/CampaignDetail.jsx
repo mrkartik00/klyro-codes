@@ -34,7 +34,7 @@ export default function CampaignDetail() {
   const qc = useQueryClient();
   const toast = useToast();
 
-  const [step, setStep] = useState({ templateId: '', delayDays: 3 });
+  const [step, setStep] = useState({ templateId: '', delayDays: 3, channel: 'email' });
   const [search, setSearch] = useState('');
   const [picked, setPicked] = useState(() => new Set());
 
@@ -74,7 +74,7 @@ export default function CampaignDetail() {
     onSuccess: () => {
       refresh();
       toast.success('Step added');
-      setStep({ templateId: '', delayDays: 3 });
+      setStep({ templateId: '', delayDays: 3, channel: 'email' });
     },
     onError: (e) => toast.error(e.message || 'Could not add step'),
   });
@@ -168,7 +168,8 @@ export default function CampaignDetail() {
                   <li key={idOf(s)} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
                     <div className="min-w-0">
                       <p className="font-medium">
-                        Step {s.order}: {tplName[String(s.templateId)] || 'Template'}
+                        Step {s.order}: {tplName[String(s.templateId)] || 'Template'}{' '}
+                        <span className="text-xs font-normal text-muted-foreground">· {s.channel === 'email' || !s.channel ? 'Email' : s.channel === 'x' ? 'X DM' : 'LinkedIn'}</span>
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {s.order === 1 ? 'Sent first' : `${s.delayDays} business day${s.delayDays === 1 ? '' : 's'} after the previous step`}
@@ -187,6 +188,7 @@ export default function CampaignDetail() {
                 addStep.mutate({
                   order: steps.length + 1,
                   templateId: step.templateId,
+                  channel: step.channel,
                   delayDays: steps.length === 0 ? 0 : Math.max(0, Number(step.delayDays) || 0),
                 });
               }}
@@ -201,6 +203,14 @@ export default function CampaignDetail() {
                 </p>
               ) : (
                 <>
+                  <div>
+                    <Label htmlFor="ch">Step {steps.length + 1} channel</Label>
+                    <Select id="ch" value={step.channel} onChange={(e) => setStep({ ...step, channel: e.target.value })}>
+                      <option value="email">Email (sent automatically after you approve)</option>
+                      <option value="linkedin">LinkedIn message (you send it — task in Approvals)</option>
+                      <option value="x">X / Twitter DM (you send it — task in Approvals)</option>
+                    </Select>
+                  </div>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div className="sm:col-span-2">
                       <Label htmlFor="tpl">Template for step {steps.length + 1}</Label>
