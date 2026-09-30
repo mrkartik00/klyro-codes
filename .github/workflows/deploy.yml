@@ -59,11 +59,13 @@ jobs:
           echo "SERVER_ENV_CHANGED=no" >> "$GITHUB_ENV"; echo "N8N_ENV_CHANGED=no" >> "$GITHUB_ENV"
           if [ -n "$SERVER_ENV" ]; then
             r=$(printf '%s\n' "$SERVER_ENV" | $SSH 'bash /opt/klyro-bin/apply-env.sh /var/www/klyro/server/.env')
-            echo "server/.env: $r"; [ "$r" = changed ] && echo "SERVER_ENV_CHANGED=yes" >> "$GITHUB_ENV"
+            echo "server/.env: $r"
+            if [ "$r" = changed ]; then echo "SERVER_ENV_CHANGED=yes" >> "$GITHUB_ENV"; fi
           fi
           if [ -n "$N8N_ENV" ]; then
             r=$(printf '%s\n' "$N8N_ENV" | $SSH 'bash /opt/klyro-bin/apply-env.sh /etc/klyro/n8n.env')
-            echo "n8n.env: $r"; [ "$r" = changed ] && echo "N8N_ENV_CHANGED=yes" >> "$GITHUB_ENV"
+            echo "n8n.env: $r"
+            if [ "$r" = changed ]; then echo "N8N_ENV_CHANGED=yes" >> "$GITHUB_ENV"; fi
           fi
       - name: Pull, build & reload on VPS
         run: |
