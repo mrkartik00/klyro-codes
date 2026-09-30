@@ -8,21 +8,26 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from 'recharts';
+import { Link } from 'react-router-dom';
 import api, { unwrap } from '../lib/api.js';
+import { formatMoney } from '../lib/format.js';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { Card, CardContent, Spinner, EmptyState } from '../components/ui/index.jsx';
 
-function StatCard({ label, value, sub }) {
+function StatCard({ label, value, sub, to, highlight }) {
   return (
-    <Card>
-      <CardContent className="p-5">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">
-          {label}
-        </p>
-        <p className="mt-2 font-heading text-3xl font-semibold">{value}</p>
-        {sub && <p className="mt-1 text-xs text-muted-foreground">{sub}</p>}
-      </CardContent>
-    </Card>
+    <Link
+      to={to}
+      className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <Card className={`h-full transition-colors hover:border-primary/60 ${highlight ? 'border-amber-700' : ''}`}>
+        <CardContent className="p-5">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          <p className="mt-2 font-heading text-3xl font-semibold tabular-nums">{value}</p>
+          {sub && <p className="mt-1 truncate text-xs text-muted-foreground">{sub}</p>}
+        </CardContent>
+      </Card>
+    </Link>
   );
 }
 
@@ -38,11 +43,17 @@ export default function Dashboard() {
   });
 
   const s = summary.data || {};
+  const unpaid = Object.entries(s.unpaidByCurrency || {})
+    .filter(([, v]) => v > 0)
+    .map(([cur, v]) => formatMoney(v, cur))
+    .join(' + ');
   const cards = [
-    { label: 'Total Leads', value: s.totalLeads ?? s.leads ?? '—' },
-    { label: 'Active Campaigns', value: s.activeCampaigns ?? s.campaigns ?? '—' },
-    { label: 'Open Deals', value: s.openDeals ?? s.deals ?? '—' },
-    { label: 'Pending Approvals', value: s.pendingApprovals ?? s.approvals ?? '—' },
+    { label: 'Pending approvals', value: s.pendingApprovals ?? 0, sub: 'Drafts waiting for you', to: '/approvals', highlight: s.pendingApprovals > 0 },
+    { label: 'Open deals', value: s.openDeals ?? 0, sub: `${s.wonDeals ?? 0} won so far`, to: '/deals' },
+    { label: 'Leads', value: s.leads ?? 0, sub: `+${s.newLeads7d ?? 0} this week`, to: '/leads' },
+    { label: 'Active campaigns', value: s.activeCampaigns ?? 0, sub: `${s.sentToday ?? 0} emails sent today`, to: '/campaigns' },
+    { label: 'Replies (7 days)', value: s.replies7d ?? 0, sub: 'Inbound emails', to: '/deals' },
+    { label: 'Unpaid invoices', value: s.unpaidInvoices ?? 0, sub: unpaid || 'Nothing outstanding', to: '/quotations' },
   ];
 
   const funnelData = Array.isArray(funnel.data)
@@ -59,7 +70,7 @@ export default function Dashboard() {
 
   return (
     <div>
-      <PageHeader title="Dashboard" description="At-a-glance pipeline health." />
+      <PageHeader title="Dashboard" description="What needs your attention today." />
 
       {summary.isLoading ? (
         <div className="flex justify-center py-10">
@@ -68,7 +79,7 @@ export default function Dashboard() {
       ) : summary.isError ? (
         <EmptyState title="Could not load analytics" hint="Check API connectivity." />
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {cards.map((c) => (
             <StatCard key={c.label} {...c} />
           ))}
