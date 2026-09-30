@@ -1,4 +1,5 @@
-import { env } from '../../config/env.js';
+import { cfg } from '../../config/secrets.js';
+import { reportOk, reportIssue, reasonFor } from '../../services/integrationStatus.service.js';
 import { logger } from '../../config/logger.js';
 
 const API = 'https://api.brevo.com/v3/smtp/email';
@@ -8,14 +9,14 @@ const API = 'https://api.brevo.com/v3/smtp/email';
  * is configured (dev/test), so flows don't crash. Never used for cold email.
  */
 export async function sendTransactional({ to, subject, htmlContent, params, templateId }) {
-  if (!env.BREVO_API_KEY) {
+  if (!cfg('BREVO_API_KEY')) {
     logger.warn({ to, subject }, 'BREVO_API_KEY not set; skipping email send');
     return { skipped: true };
   }
   const res = await fetch(API, {
     method: 'POST',
     headers: {
-      'api-key': env.BREVO_API_KEY,
+      'api-key': cfg('BREVO_API_KEY'),
       'content-type': 'application/json',
       accept: 'application/json',
     },
@@ -30,8 +31,10 @@ export async function sendTransactional({ to, subject, htmlContent, params, temp
   });
   if (!res.ok) {
     const body = await res.text();
+    reportIssue('brevo', reasonFor(res.status, body));
     throw new Error(`Brevo send failed (${res.status}): ${body}`);
   }
+  reportOk('brevo', `Last email sent to ${to}`);
   return res.json();
 }
 

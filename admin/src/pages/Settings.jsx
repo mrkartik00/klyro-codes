@@ -163,7 +163,7 @@ export default function Settings() {
             </ul>
           )}
           <p className="text-xs text-muted-foreground">
-            Keys are stored on the server only. The n8n editor is at{' '}
+            Add, replace or test API keys on the <a href="/keys" className="underline">API keys</a> page. The n8n editor is at{' '}
             <a href="https://n8n.klyro.codes" target="_blank" rel="noopener noreferrer" className="underline">
               n8n.klyro.codes
             </a>

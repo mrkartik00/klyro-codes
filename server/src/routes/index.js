@@ -13,6 +13,7 @@ import { inboxRouter } from './inbox.routes.js';
 import { manageRouter } from './manage.routes.js';
 import { schedulesRouter } from './schedules.routes.js';
 import { clipRouter } from './clip.routes.js';
+import { keysRouter } from './keys.routes.js';
 
 // All admin routes require an authenticated admin with 2FA, workspace-scoped.
 export const adminRouter = Router();
@@ -24,6 +25,8 @@ adminRouter.use('/deals', dealsRouter);
 adminRouter.use('/quotations', quotationsRouter);
 adminRouter.use('/portfolio', portfolioRouter);
 adminRouter.use('/scrape', scrapeRouter);
+// Before /settings so /settings/keys/* never reaches settingsRouter's /:key.
+adminRouter.use('/settings/keys', keysRouter);
 adminRouter.use('/settings', settingsRouter);
 adminRouter.use('/audit-logs', auditRouter);
 adminRouter.use('/analytics', analyticsRouter);

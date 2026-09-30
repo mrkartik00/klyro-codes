@@ -10,7 +10,7 @@ import { validateBody } from '../middleware/validate.js';
 import { Lead } from '../models/Lead.js';
 import { qualify, saveIntentLead, PLATFORM_LABEL } from '../services/social.service.js';
 import { authorFromUrl, sourceStatus, usage, braveUsage } from '../services/intent.service.js';
-import { env } from '../config/env.js';
+import { cfgNum } from '../config/secrets.js';
 import { writeAudit } from '../services/audit.service.js';
 
 export const clipRouter = Router();
@@ -20,7 +20,7 @@ clipRouter.get(
   asyncHandler(async (req, res) =>
     ok(res, {
       sources: sourceStatus(),
-      usage: { x: { used: await usage(req.workspaceId, 'x'), cap: env.X_MONTHLY_READ_CAP }, brave: await braveUsage(req.workspaceId) },
+      usage: { x: { used: await usage(req.workspaceId, 'x'), cap: cfgNum('X_MONTHLY_READ_CAP', 3000) }, brave: await braveUsage(req.workspaceId) },
     }),
   ),
 );

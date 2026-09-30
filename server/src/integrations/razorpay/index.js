@@ -1,12 +1,12 @@
 import crypto from 'node:crypto';
-import { env } from '../../config/env.js';
+import { cfg } from '../../config/secrets.js';
 import { logger } from '../../config/logger.js';
 
 const BASE = 'https://api.razorpay.com/v1';
 
 function authHeader() {
-  const id = env.RAZORPAY_KEY_ID;
-  const secret = env.RAZORPAY_KEY_SECRET;
+  const id = cfg('RAZORPAY_KEY_ID');
+  const secret = cfg('RAZORPAY_KEY_SECRET');
   if (!id || !secret) return null;
   return 'Basic ' + Buffer.from(`${id}:${secret}`).toString('base64');
 }
@@ -29,7 +29,7 @@ export async function createOrder({ amountMinor, currency, receipt }) {
 
 /** Verify a Razorpay webhook signature (HMAC-SHA256 over the raw body). */
 export function verifyWebhook(rawBody, signature) {
-  const secret = env.RAZORPAY_WEBHOOK_SECRET;
+  const secret = cfg('RAZORPAY_WEBHOOK_SECRET');
   if (!secret) return false;
   const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
   const a = Buffer.from(expected);

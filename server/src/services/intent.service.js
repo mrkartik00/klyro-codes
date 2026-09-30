@@ -12,7 +12,8 @@
 //   x              Official X API recent search                 pay-per-use, hard monthly cap
 //   companieshouse Newly incorporated UK companies               free key (business leads)
 import crypto from 'node:crypto';
-import { env } from '../config/env.js';
+import { cfg, cfgNum, onSecretsChange } from '../config/secrets.js';
+import { reportOk, reportIssue, reasonFor } from './integrationStatus.service.js';
 import { logger } from '../config/logger.js';
 import { Lead } from '../models/Lead.js';
 import { Setting } from '../models/Setting.js';
@@ -44,7 +45,7 @@ export const INTENT_SOURCES = {
 };
 
 export const isIntentSource = (s) => Boolean(INTENT_SOURCES[s]);
-export const missingKeys = (s) => (INTENT_SOURCES[s]?.needs || []).filter((k) => !env[k]);
+export const missingKeys = (s) => (INTENT_SOURCES[s]?.needs || []).filter((k) => !cfg(k));
 export function sourceStatus() {
   return Object.entries(INTENT_SOURCES).map(([id, c]) => ({ id, label: c.label, hint: c.hint, ready: missingKeys(id).length === 0, missing: missingKeys(id) }));
 }
@@ -54,8 +55,11 @@ async function getJson(url, opts = {}, { retries = 2 } = {}) {
     const res = await fetch(url, { ...opts, headers: { 'user-agent': UA, accept: 'application/json', ...(opts.headers || {}) }, signal: AbortSignal.timeout(25000) }).catch((e) => ({ ok: false, status: e.name }));
     if (res.ok) return res.json();
     if (attempt >= retries || ![429, 500, 502, 503, 'TimeoutError'].includes(res.status)) {
-      const body = res.text ? (await res.text().catch(() => '')).slice(0, 160) : '';
-      throw new Error(`${new URL(url).host} ${res.status} ${body}`.trim());
+      const body = res.text ? (await res.text().catch(() => '')).slice(0, 300) : '';
+      const err = new Error(`${new URL(url).host}: ${reasonFor(res.status, body)}`);
+      err.status = res.status;
+      err.body = body;
+      throw err;
     }
     await sleep(3000 * (attempt + 1));
   }
@@ -205,10 +209,10 @@ export async function fetchTenders({ sinceDays }) {
   fts.forEach((r) => add(r, 'fts'));
   cf.forEach((r) => add(r, 'cf'));
 
-  if (env.SAM_API_KEY) {
+  if (cfg('SAM_API_KEY')) {
     const fmt = (d) => `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
     for (const ncode of ['541511', '541512', '541519']) {
-      const qs = new URLSearchParams({ api_key: env.SAM_API_KEY, postedFrom: fmt(new Date(Date.now() - sinceDays * 864e5)), postedTo: fmt(new Date()), ncode, limit: '100' });
+      const qs = new URLSearchParams({ api_key: cfg('SAM_API_KEY'), postedFrom: fmt(new Date(Date.now() - sinceDays * 864e5)), postedTo: fmt(new Date()), ncode, limit: '100' });
       const d = await getJson(`https://api.sam.gov/opportunities/v2/search?${qs}`).catch(() => null);
       for (const o of d?.opportunitiesData || []) {
         if (!/web|website|app|portal|software|digital|platform/i.test(o.title)) continue;
@@ -234,12 +238,17 @@ export async function fetchTenders({ sinceDays }) {
 }
 
 let bsky = { jwt: null, until: 0, pds: 'https://bsky.social' };
+// New keys from the admin: drop cached sessions / exhausted markers.
+onSecretsChange((names) => {
+  if (names.some((n) => n.startsWith('BSKY_'))) bsky = { jwt: null, until: 0, pds: 'https://bsky.social' };
+  if (names.includes('BRAVE_API_KEY')) exhausted.clear();
+});
 async function bskySession() {
   if (bsky.jwt && Date.now() < bsky.until) return bsky;
   const s = await getJson('https://bsky.social/xrpc/com.atproto.server.createSession', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: env.BSKY_HANDLE, password: env.BSKY_APP_PASSWORD }),
+    body: JSON.stringify({ identifier: cfg('BSKY_HANDLE'), password: cfg('BSKY_APP_PASSWORD') }),
   });
   const pds = s.didDoc?.service?.find((x) => x.id === '#atproto_pds')?.serviceEndpoint || 'https://bsky.social';
   bsky = { jwt: s.accessJwt, until: Date.now() + 90 * 60 * 1000, pds };
@@ -316,7 +325,7 @@ export function authorFromUrl(url) {
 // BRAVE_API_KEY may hold several keys (comma-separated); each free key has
 // ~$5 credit ≈ 1,000 searches/month, so they are used one after another.
 export const BRAVE_PER_KEY_CAP = 950;
-export const braveKeys = () => String(env.BRAVE_API_KEY || '').split(',').map((k) => k.trim()).filter(Boolean);
+export const braveKeys = () => String(cfg('BRAVE_API_KEY') || '').split(',').map((k) => k.trim()).filter(Boolean);
 export async function braveUsage(workspaceId) {
   const keys = braveKeys();
   const used = await Promise.all(keys.map((_, i) => usage(workspaceId, `brave${i}`)));
@@ -335,14 +344,16 @@ async function braveSearch(workspaceId, qs) {
     if (!res) return null;
     await usage(workspaceId, `brave${i}`, 1);
     if (res.ok) return res.json();
-    if ([401, 402, 403, 429].includes(res.status)) {
+    if ([401, 402, 403, 422, 429].includes(res.status)) {
       exhausted.add(keys[i]); // out of credit / invalid / rate limited → next key
+      const body = await res.text().catch(() => '');
+      reportIssue('brave', `Key ${i + 1} of ${keys.length}: ${reasonFor(res.status, body)}`);
       logger.warn({ status: res.status, key: i }, 'brave key unavailable, trying next');
       continue;
     }
     return null;
   }
-  throw new Error('All Brave keys are out of monthly credit');
+  throw new Error(keys.length ? 'All Brave keys are out of monthly credit or rejected — add or replace a key' : 'No Brave key set');
 }
 
 export async function fetchBrave({ workspaceId, keywords, filters = {} }) {
@@ -388,7 +399,7 @@ export async function fetchBrave({ workspaceId, keywords, filters = {} }) {
 }
 
 export async function fetchX({ workspaceId, target, keywords }) {
-  const cap = env.X_MONTHLY_READ_CAP;
+  const cap = cfgNum('X_MONTHLY_READ_CAP', 3000);
   const used = await usage(workspaceId, 'x');
   const budget = Math.min(100, cap - used);
   if (budget < 10) throw new Error(`X monthly read cap reached (${used}/${cap}) — raise X_MONTHLY_READ_CAP to read more`);
@@ -403,7 +414,7 @@ export async function fetchX({ workspaceId, target, keywords }) {
     'user.fields': 'username,name,description',
   });
   if (target.filters?.sinceId) qs.set('since_id', target.filters.sinceId);
-  const d = await getJson(`https://api.x.com/2/tweets/search/recent?${qs}`, { headers: { authorization: `Bearer ${env.X_BEARER_TOKEN}` } }, { retries: 0 });
+  const d = await getJson(`https://api.x.com/2/tweets/search/recent?${qs}`, { headers: { authorization: `Bearer ${cfg('X_BEARER_TOKEN')}` } }, { retries: 0 });
   const tweets = d.data || [];
   await usage(workspaceId, 'x', tweets.length);
   if (d.meta?.newest_id) await ScrapeTarget.updateOne({ _id: target._id }, { $set: { 'filters.sinceId': d.meta.newest_id } });
@@ -446,9 +457,9 @@ async function runCompaniesHouse({ workspaceId, target, job, createdBy, limit, n
   });
   if (target.cities?.length) qs.set('location', target.cities[0]);
   const d = await getJson(`https://api.company-information.service.gov.uk/advanced-search/companies?${qs}`, {
-    headers: { authorization: `Basic ${Buffer.from(`${env.COMPANIES_HOUSE_API_KEY}:`).toString('base64')}` },
+    headers: { authorization: `Basic ${Buffer.from(`${cfg('COMPANIES_HOUSE_API_KEY')}:`).toString('base64')}` },
   });
-  const auth = { authorization: `Basic ${Buffer.from(`${env.COMPANIES_HOUSE_API_KEY}:`).toString('base64')}` };
+  const auth = { authorization: `Basic ${Buffer.from(`${cfg('COMPANIES_HOUSE_API_KEY')}:`).toString('base64')}` };
   const items = (d.items || []).slice(0, limit);
   // Director = the person to contact (free API; limit 600 requests / 5 min).
   const directors = {};
@@ -529,6 +540,7 @@ export async function runIntentTarget({ workspaceId, target, job, createdBy }) {
 
     if (cfg.business) {
       const r = await runCompaniesHouse({ workspaceId, target, job, createdBy, limit, note });
+      reportOk('companieshouse', `Last run: ${r.found} companies, ${r.created} new leads`);
       await progress({ status: 'enriched', found: r.found, ingested: r.created, finishedAt: new Date() });
       return r;
     }
@@ -584,8 +596,10 @@ export async function runIntentTarget({ workspaceId, target, job, createdBy }) {
       if (checks % 5 === 0) await progress({ found, ingested: created });
     }
     await progress({ status: 'enriched', found, ingested: created, finishedAt: new Date() });
+    reportOk(target.source === 'brave' ? 'brave' : target.source === 'tenders' ? 'tenders' : target.source, `Last run: ${posts.length} items read, ${created} new leads`);
     return { found, created };
   } catch (err) {
+    reportIssue(target.source === 'companieshouse' ? 'companieshouse' : target.source, err.message);
     note(`failed: ${err.message}`);
     await progress({ status: 'failed', error: String(err.message).slice(0, 500), finishedAt: new Date() });
     return { found, created, error: err.message };

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   CalendarClock,
+  KeyRound,
   Bookmark,
   LayoutDashboard,
   Users,
@@ -33,6 +34,7 @@ export const NAV_ITEMS = [
   { to: '/mailboxes', label: 'Mailboxes', icon: Inbox },
   { to: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { to: '/settings', label: 'Settings', icon: Settings },
+  { to: '/keys', label: 'API keys', icon: KeyRound },
   { to: '/audit', label: 'Audit Log', icon: ScrollText },
 ];
 

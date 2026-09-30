@@ -22,7 +22,7 @@ import { encrypt } from '../utils/crypto.js';
 import { writeAudit } from '../services/audit.service.js';
 import { withTransaction } from '../utils/transaction.js';
 import { ApiError } from '../utils/ApiError.js';
-import { env } from '../config/env.js';
+import { cfg } from '../config/secrets.js';
 import { Mailbox } from '../models/Mailbox.js';
 import { sendTelegram } from '../integrations/telegram/index.js';
 import { generateJson } from '../integrations/gemini/index.js';
@@ -354,9 +354,9 @@ settingsRouter.get(
     return ok(res, [
       { key: 'gmail', name: 'Gmail sending (n8n)', ok: on('H3') && mailboxes.some((m) => m.status === 'active'), detail: mailboxes.map((m) => `${m.address} · ${m.status} · ${m.sentToday}/${m.dailyCap} today`).join(', ') || 'No mailbox added' },
       { key: 'replies', name: 'Reply tracking (n8n)', ok: on('H4'), detail: on('H4') ? 'Checks the inbox every 2 minutes' : 'Reply watcher is off' },
-      { key: 'gemini', name: 'Gemini AI drafting', ok: Boolean(env.GEMINI_API_KEY), detail: env.GEMINI_API_KEY ? `Model ${env.GEMINI_MODEL || 'gemini-flash-latest'}` : 'GEMINI_API_KEY not set — templates are used instead', test: Boolean(env.GEMINI_API_KEY) },
-      { key: 'telegram', name: 'Telegram alerts', ok: Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID), detail: env.TELEGRAM_CHAT_ID ? `Chat ${env.TELEGRAM_CHAT_ID}` : 'Not configured', test: Boolean(env.TELEGRAM_BOT_TOKEN) },
-      { key: 'brevo', name: 'Brevo (client emails: codes, quotes, invoices)', ok: Boolean(env.BREVO_API_KEY), detail: env.BREVO_API_KEY ? 'Sends from noreply@klyro.codes' : 'Not configured', test: Boolean(env.BREVO_API_KEY) },
+      { key: 'gemini', name: 'Gemini AI drafting', ok: Boolean(cfg('GEMINI_API_KEY')), detail: cfg('GEMINI_API_KEY') ? `Model ${cfg('GEMINI_MODEL') || 'gemini-flash-latest'}` : 'GEMINI_API_KEY not set — templates are used instead', test: Boolean(cfg('GEMINI_API_KEY')) },
+      { key: 'telegram', name: 'Telegram alerts', ok: Boolean(cfg('TELEGRAM_BOT_TOKEN') && cfg('TELEGRAM_CHAT_ID')), detail: cfg('TELEGRAM_CHAT_ID') ? `Chat ${cfg('TELEGRAM_CHAT_ID')}` : 'Not configured', test: Boolean(cfg('TELEGRAM_BOT_TOKEN')) },
+      { key: 'brevo', name: 'Brevo (client emails: codes, quotes, invoices)', ok: Boolean(cfg('BREVO_API_KEY')), detail: cfg('BREVO_API_KEY') ? 'Sends from noreply@klyro.codes' : 'Not configured', test: Boolean(cfg('BREVO_API_KEY')) },
       { key: 'n8n', name: 'n8n automation', ok: workflows.length > 0, detail: `${workflows.filter((w) => w.active).length} of ${workflows.length} workflows on` },
       { key: 'scraper', name: 'Google Maps scraper', ok: scraper, detail: scraper ? 'Running' : 'Not reachable' },
     ]);

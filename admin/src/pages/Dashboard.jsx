@@ -56,6 +56,7 @@ export default function Dashboard() {
     { label: 'Unpaid invoices', value: s.unpaidInvoices ?? 0, sub: unpaid || 'Nothing outstanding', to: '/quotations' },
   ];
 
+  const keys = useQuery({ queryKey: ['api-keys'], queryFn: () => unwrap(api.get('/admin/settings/keys')), staleTime: 60000 });
   const funnelData = Array.isArray(funnel.data)
     ? funnel.data.map((d) => ({
         stage: d.stage ?? d.name ?? d.label,
@@ -68,9 +69,17 @@ export default function Dashboard() {
         }))
       : [];
 
+  const problems = (Array.isArray(keys.data) ? keys.data : []).filter((i) => i.configured && i.status && !i.status.ok);
+
   return (
     <div>
       <PageHeader title="Dashboard" description="What needs your attention today." />
+      {problems.length > 0 && (
+        <Link to="/keys" className="mb-4 flex items-start gap-2 rounded-lg border border-amber-700/60 bg-amber-950/40 p-3 text-sm text-amber-300 hover:bg-amber-950/60" role="alert">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <span>{problems.map((p) => `${p.name}: ${p.status.reason}`).join(' · ')} — open API keys</span>
+        </Link>
+      )}
 
       {summary.isLoading ? (
         <div className="flex justify-center py-10">

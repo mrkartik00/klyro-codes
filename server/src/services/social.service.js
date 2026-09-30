@@ -9,7 +9,7 @@
 // only "buyer" posts become leads, with a drafted reply in Approvals that YOU
 // post (no automated posting). If REDDIT_CLIENT_ID/SECRET are set, the
 // official OAuth API is used; otherwise public RSS feeds.
-import { env } from '../config/env.js';
+import { cfg } from '../config/secrets.js';
 import { logger } from '../config/logger.js';
 import { generateJson } from '../integrations/gemini/index.js';
 import { redactPii } from '../utils/pii.js';
@@ -107,12 +107,12 @@ export function parseRedditFeed(xml) {
 
 let oauth = { token: null, until: 0 };
 async function redditToken() {
-  if (!env.REDDIT_CLIENT_ID || !env.REDDIT_CLIENT_SECRET) return null;
+  if (!cfg('REDDIT_CLIENT_ID') || !cfg('REDDIT_CLIENT_SECRET')) return null;
   if (oauth.token && Date.now() < oauth.until) return oauth.token;
   const res = await fetch('https://www.reddit.com/api/v1/access_token', {
     method: 'POST',
     headers: {
-      authorization: `Basic ${Buffer.from(`${env.REDDIT_CLIENT_ID}:${env.REDDIT_CLIENT_SECRET}`).toString('base64')}`,
+      authorization: `Basic ${Buffer.from(`${cfg('REDDIT_CLIENT_ID')}:${cfg('REDDIT_CLIENT_SECRET')}`).toString('base64')}`,
       'content-type': 'application/x-www-form-urlencoded',
       'user-agent': UA,
     },
@@ -563,7 +563,7 @@ export async function startRedditJob({ workspaceId, scrapeTargetId, createdBy, s
  * (each covers 3 subreddits); with keys, all of them.
  */
 export async function scanAllReddit({ workspaceId }) {
-  const perScan = env.REDDIT_CLIENT_ID ? 0 : 2;
+  const perScan = cfg('REDDIT_CLIENT_ID') ? 0 : 2;
   let q = ScrapeTarget.find({ workspaceId, source: 'reddit', active: true, deletedAt: null }).sort({ lastRunAt: 1, createdAt: 1 });
   if (perScan) q = q.limit(perScan);
   const targets = await q;

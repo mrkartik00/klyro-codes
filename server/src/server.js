@@ -6,10 +6,16 @@ import { connectDb, disconnectDb } from './config/db.js';
 import { getRedis, closeRedis } from './config/redis.js';
 import { initSocket } from './socket/index.js';
 import { startQueues, stopQueues } from './queues/index.js';
+import { loadSecrets, startSecretsRefresh, onSecretsChange } from './config/secrets.js';
+import { resetGemini } from './integrations/gemini/index.js';
 
 async function main() {
   await connectDb();
   getRedis();
+  // API keys edited in the admin override .env; refreshed every 30 s.
+  await loadSecrets().catch((err) => logger.error({ err }, 'could not load stored API keys'));
+  startSecretsRefresh();
+  onSecretsChange((names) => names.some((n) => n.startsWith('GEMINI')) && resetGemini());
 
   const app = createApp();
   const server = http.createServer(app);
