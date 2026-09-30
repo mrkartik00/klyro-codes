@@ -38,7 +38,7 @@ for (const p of PRESETS) {
   const active = !pausedByDefault && missingKeys(p.source).length === 0;
   await ScrapeTarget.updateOne(
     { workspaceId: ws._id, name: p.name, deletedAt: null },
-    { $set: { workspaceId: ws._id, maxResults: 25, country: 'GB', ...rest, ...(active ? { active: true } : {}), ...(pausedByDefault ? { active: false } : {}) }, $setOnInsert: { createdBy: admin?._id, ...(active ? {} : { active: false }) } },
+    { $set: { workspaceId: ws._id, maxResults: 25, country: 'GB', ...rest, ...(active ? { active: true } : {}), ...(pausedByDefault ? { active: false } : {}) }, $setOnInsert: { createdBy: admin?._id, ...(active || pausedByDefault ? {} : { active: false }) } },
     { upsert: true },
   );
   console.log(`${active ? 'on ' : 'off'} ${p.source.padEnd(15)} ${p.name}${missingKeys(p.source).length ? `  (needs ${missingKeys(p.source).join(', ')})` : ''}`);
