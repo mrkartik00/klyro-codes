@@ -1,11 +1,21 @@
 {
   "id": "KlyroH3Send00001",
   "name": "H3 — Scheduled send (claim → Gmail → result)",
-  "meta": {
-    "description": "Every 5 minutes: claims a send slot from /internal/sends/claim, and if claimed, sends via the matching Gmail mailbox node (add one branch per mailbox keyed on mailboxAddress), then reports the outcome to /internal/sends/result. Adds an X-Klyro-Msg header and 60-240s jitter. This template shows one mailbox branch; duplicate the Gmail node per mailbox and route on {{ $json.mailboxAddress }}."
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none"
   },
   "nodes": [
     {
+      "id": "s",
+      "name": "Every 5 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "rule": {
           "interval": [
@@ -15,149 +25,236 @@
             }
           ]
         }
-      },
-      "id": "cron",
-      "name": "Every 5 min",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
-      "position": [
-        0,
-        0
-      ]
+      }
     },
     {
-      "parameters": {
-        "language": "javaScript",
-        "jsCode": "// The enrollmentId + stepOrder to attempt would come from a due-steps query.\n// For simplicity this reads workflow static data or input; adapt as needed.\nreturn [{ json: { method: 'POST', path: '/internal/sends/claim', body: { workspaceId: $env.KLYRO_WORKSPACE_ID, enrollmentId: $json.enrollmentId, stepOrder: $json.stepOrder } } }];"
-      },
-      "id": "claimReq",
-      "name": "Build claim request",
+      "id": "ask-for-ready-sends",
+      "name": "Ask for ready sends",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         220,
         0
-      ]
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: { method: 'GET', path: `/internal/sends/ready?workspaceId=${$env.KLYRO_WORKSPACE_ID}&limit=5` } }];"
+      }
     },
     {
-      "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "value": "KlyroApiSigner01",
-          "mode": "id"
-        },
-        "options": {},
-        "source": "database"
-      },
-      "id": "claim",
-      "name": "Claim send slot",
+      "id": "get-ready-sends",
+      "name": "Get ready sends",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
       "position": [
         440,
         0
-      ]
-    },
-    {
+      ],
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json.data.claimed }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "true"
-              }
-            }
-          ]
-        }
-      },
-      "id": "ifClaimed",
-      "name": "Claimed?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        660,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "amount": "={{ 60 + Math.floor(Math.random()*180) }}",
-        "unit": "seconds"
-      },
-      "id": "jitter",
-      "name": "Jitter 60-240s",
-      "type": "n8n-nodes-base.wait",
-      "typeVersion": 1.1,
-      "position": [
-        880,
-        -100
-      ]
-    },
-    {
-      "parameters": {
-        "resource": "message",
-        "operation": "send",
-        "sendTo": "={{ $json.data.to }}",
-        "subject": "={{ $json.data.subject }}",
-        "message": "={{ $json.data.body }}",
-        "options": {
-          "customHeaders": {
-            "values": [
-              {
-                "name": "X-Klyro-Msg",
-                "value": "={{ $json.data.headerToken }}"
-              }
-            ]
-          }
-        }
-      },
-      "id": "gmailSend",
-      "name": "Gmail: send (mailbox 1)",
-      "type": "n8n-nodes-base.gmail",
-      "typeVersion": 2.1,
-      "position": [
-        1100,
-        -100
-      ]
-    },
-    {
-      "parameters": {
-        "language": "javaScript",
-        "jsCode": "const claim = $('Claim send slot').first().json.data;\nconst sent = $input.first().json;\nreturn [{ json: { method: 'POST', path: '/internal/sends/result', idempotencyKey: claim.messageId, body: { workspaceId: $env.KLYRO_WORKSPACE_ID, messageId: claim.messageId, ok: true, providerMessageId: sent.id || sent.messageId, threadId: sent.threadId } } }];"
-      },
-      "id": "resultReq",
-      "name": "Build result",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1320,
-        -100
-      ]
-    },
-    {
-      "parameters": {
+        "source": "database",
         "workflowId": {
           "__rl": true,
           "value": "KlyroApiSigner01",
           "mode": "id"
         },
-        "options": {},
-        "source": "database"
+        "options": {}
+      }
+    },
+    {
+      "id": "one-claim-per-step",
+      "name": "One claim per step",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const rows = $input.first().json?.data || [];\nreturn rows.map((r) => ({ json: { method: 'POST', path: '/internal/sends/claim',\n  body: { workspaceId: $env.KLYRO_WORKSPACE_ID, enrollmentId: r.enrollmentId, stepOrder: r.stepOrder } } }));"
+      }
+    },
+    {
+      "id": "loop",
+      "name": "One at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "claim-send-slot",
+      "name": "Claim send slot",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        100
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "KlyroApiSigner01",
+          "mode": "id"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "claimed-with-content",
+      "name": "Claimed with content?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.data?.claimed === true && !$json.data?.idempotent && !!$json.data?.subject && !!$json.data?.body }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "build-email",
+      "name": "Build email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Plain-text body → simple HTML + mandatory one-click unsubscribe footer.\nconst c = $input.first().json.data;\nconst esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst html = esc(c.body).split(/\\n{2,}/).map((p) => `<p>${p.replace(/\\n/g, '<br>')}</p>`).join('\\n')\n  + `\\n<p style=\"font-size:12px;color:#888\">Not interested? <a href=\"${c.unsubscribeUrl}\">Unsubscribe</a></p>`;\nreturn [{ json: { ...c, html } }];"
+      }
+    },
+    {
+      "id": "jit",
+      "name": "Jitter 60-180s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        0
+      ],
+      "webhookId": "klyro-h3-jitter",
+      "parameters": {
+        "amount": "={{ 60 + Math.floor(Math.random() * 120) }}",
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "gm",
+      "name": "Gmail: send",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1980,
+        0
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "dPpp8UaFOG2tb53Q",
+          "name": "Gmail — admin@klyro.codes"
+        }
       },
-      "id": "result",
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $('Build email').first().json.to }}",
+        "subject": "={{ $('Build email').first().json.subject }}",
+        "emailType": "html",
+        "message": "={{ $('Build email').first().json.html }}",
+        "options": {
+          "appendAttribution": false,
+          "senderName": "Kartik from Klyro",
+          "customHeaders": {
+            "values": [
+              {
+                "name": "X-Klyro-Msg",
+                "value": "={{ $('Build email').first().json.headerToken }}"
+              },
+              {
+                "name": "List-Unsubscribe",
+                "value": "=<{{ $('Build email').first().json.unsubscribeUrl }}>"
+              },
+              {
+                "name": "List-Unsubscribe-Post",
+                "value": "List-Unsubscribe=One-Click"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "result:-sent",
+      "name": "Result: sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        -80
+      ],
+      "parameters": {
+        "jsCode": "const c = $('Build email').first().json; const s = $input.first().json;\nreturn [{ json: { method: 'POST', path: '/internal/sends/result', idempotencyKey: `sent-${c.messageId}`,\n  body: { workspaceId: $env.KLYRO_WORKSPACE_ID, messageId: String(c.messageId), ok: true, providerMessageId: s.id, threadId: s.threadId } } }];"
+      }
+    },
+    {
+      "id": "result:-failed",
+      "name": "Result: failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        80
+      ],
+      "parameters": {
+        "jsCode": "const c = $('Build email').first().json; const e = $input.first().json;\nreturn [{ json: { method: 'POST', path: '/internal/sends/result', idempotencyKey: `fail-${c.messageId}`,\n  body: { workspaceId: $env.KLYRO_WORKSPACE_ID, messageId: String(c.messageId), ok: false, error: String(e.error?.message || e.error || 'Gmail send failed').slice(0, 400) } } }];"
+      }
+    },
+    {
+      "id": "report-result",
       "name": "Report result",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
       "position": [
-        1540,
-        -100
-      ]
+        2420,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "KlyroApiSigner01",
+          "mode": "id"
+        },
+        "options": {}
+      }
     }
   ],
   "connections": {
@@ -165,15 +262,49 @@
       "main": [
         [
           {
-            "node": "Build claim request",
+            "node": "Ask for ready sends",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build claim request": {
+    "Ask for ready sends": {
       "main": [
+        [
+          {
+            "node": "Get ready sends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get ready sends": {
+      "main": [
+        [
+          {
+            "node": "One claim per step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One claim per step": {
+      "main": [
+        [
+          {
+            "node": "One at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One at a time": {
+      "main": [
+        [],
         [
           {
             "node": "Claim send slot",
@@ -187,48 +318,72 @@
       "main": [
         [
           {
-            "node": "Claimed?",
+            "node": "Claimed with content?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Claimed?": {
+    "Claimed with content?": {
       "main": [
         [
           {
-            "node": "Jitter 60-240s",
+            "node": "Build email",
             "type": "main",
             "index": 0
           }
         ],
-        []
-      ]
-    },
-    "Jitter 60-240s": {
-      "main": [
         [
           {
-            "node": "Gmail: send (mailbox 1)",
+            "node": "One at a time",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Gmail: send (mailbox 1)": {
+    "Build email": {
       "main": [
         [
           {
-            "node": "Build result",
+            "node": "Jitter 60-180s",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build result": {
+    "Jitter 60-180s": {
+      "main": [
+        [
+          {
+            "node": "Gmail: send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: send": {
+      "main": [
+        [
+          {
+            "node": "Result: sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result: failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Result: sent": {
       "main": [
         [
           {
@@ -238,9 +393,31 @@
           }
         ]
       ]
+    },
+    "Result: failed": {
+      "main": [
+        [
+          {
+            "node": "Report result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report result": {
+      "main": [
+        [
+          {
+            "node": "One at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "settings": {
-    "executionOrder": "v1"
+  "meta": {
+    "notes": "Only approved drafts are ever sent (API enforces). One email per claim, 60–180s jitter, API enforces daily cap, send window, suppression and UK rules."
   }
 }

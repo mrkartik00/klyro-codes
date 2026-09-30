@@ -49,13 +49,19 @@
         "options": {}
       },
       "id": "send",
-      "name": "Gmail: warmup send (mailbox 1)",
+      "name": "Gmail: warmup send",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
       "position": [
         440,
         0
-      ]
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "dPpp8UaFOG2tb53Q",
+          "name": "Gmail — admin@klyro.codes"
+        }
+      }
     }
   ],
   "connections": {
@@ -74,7 +80,7 @@
       "main": [
         [
           {
-            "node": "Gmail: warmup send (mailbox 1)",
+            "node": "Gmail: warmup send",
             "type": "main",
             "index": 0
           }
