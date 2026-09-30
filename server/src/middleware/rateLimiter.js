@@ -30,9 +30,12 @@ export const apiLimiter = rateLimit({
   message: { success: false, error: { code: 'TOO_MANY_REQUESTS', message: 'Too many requests' } },
 });
 
+// Brute-force guard: only FAILED attempts count (wrong password, bad code), so
+// normal register → verify → login flows never trip it.
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: 20,
+  skipSuccessfulRequests: true,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   store: store('auth'),
