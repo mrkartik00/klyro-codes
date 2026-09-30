@@ -447,7 +447,7 @@ export async function runIntentTarget({ workspaceId, target, job, createdBy }) {
   const sinceDays = target.filters?.maxAgeDays ?? (target.source === 'tenders' ? 7 : 3);
   const minIntent = target.filters?.minIntent ?? 0.55;
   const limit = job?.requested || target.maxResults || 25;
-  const maxChecks = target.filters?.maxChecks ?? 60; // AI calls per run
+  const maxChecks = target.filters?.maxChecks ?? 20; // AI calls per run (free Gemini quota)
   const stats = { checked: 0, filtered: 0, duplicates: 0, notBuyer: 0, lowIntent: 0 };
   const log = [];
   const note = (line) => log.length < 200 && log.push(`${new Date().toISOString().slice(11, 19)} ${line}`);
