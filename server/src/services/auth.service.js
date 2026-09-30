@@ -7,6 +7,8 @@ import { env } from '../config/env.js';
 import { User } from '../models/User.js';
 import { Workspace } from '../models/Workspace.js';
 import { Membership } from '../models/Membership.js';
+import { Contact } from '../models/Contact.js';
+import { Deal } from '../models/Deal.js';
 import { Session } from '../models/Session.js';
 import { withTransaction } from '../utils/transaction.js';
 import { ApiError } from '../utils/ApiError.js';
@@ -71,7 +73,8 @@ export async function register({ name, email, password }) {
     );
 
     // Bootstrap: first ever user owns a new workspace as super_admin.
-    const anyWs = await Workspace.findOne().session(session);
+    // Clients join the main (oldest) workspace.
+    const anyWs = await Workspace.findOne().sort({ createdAt: 1 }).session(session);
     let workspace = anyWs;
     if (!anyWs) {
       [workspace] = await Workspace.create(
@@ -101,7 +104,28 @@ export async function verifyEmail({ email, code }) {
   user.verifyCodeHash = null;
   user.verifyCodeExpires = null;
   await user.save();
+  await linkClientDeals(user).catch(() => {});
   return { verified: true };
+}
+
+/**
+ * Once a client proves they own an email, attach them to any open deals whose
+ * contact has that email, so their quotes/projects show in the portal without
+ * an admin linking them by hand. Only unowned deals, only verified emails.
+ */
+export async function linkClientDeals(user) {
+  const memberships = await Membership.find({ userId: user._id, role: 'client' }).lean();
+  let linked = 0;
+  for (const m of memberships) {
+    const contacts = await Contact.find({ workspaceId: m.workspaceId, email: String(user.email).toLowerCase() }).select('_id').lean();
+    if (!contacts.length) continue;
+    const r = await Deal.updateMany(
+      { workspaceId: m.workspaceId, contactId: { $in: contacts.map((c) => c._id) }, clientUserId: null },
+      { $set: { clientUserId: user._id } },
+    );
+    linked += r.modifiedCount ?? 0;
+  }
+  return linked;
 }
 
 export async function login({ email, password, totp, userAgent, ip }) {
@@ -136,6 +160,7 @@ export async function login({ email, password, totp, userAgent, ip }) {
   user.failedLogins = 0;
   user.lockedUntil = null;
   await user.save();
+  if (membership.role === 'client' && user.emailVerifiedAt) await linkClientDeals(user).catch(() => {});
 
   const refreshToken = await withTransaction((s) => issueRefresh(user, { userAgent, ip }, s));
   return {

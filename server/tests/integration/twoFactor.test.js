@@ -53,3 +53,19 @@ describe('admin 2FA login', () => {
     expect(ok.accessToken).toBeTruthy();
   });
 });
+
+describe('client auto-link on email verification', () => {
+  it('attaches the verified client to unowned deals for their email', async () => {
+    const { Contact } = await import('../../src/models/Contact.js');
+    const { Deal } = await import('../../src/models/Deal.js');
+    const ws2 = await Workspace.create({ name: 'Link', slug: `klyro-link-${Date.now()}` });
+    const u = await User.create({ name: 'C', email: 'buyer@acme.test', passwordHash: 'x', emailVerifiedAt: new Date() });
+    await Membership.create({ workspaceId: ws2._id, userId: u._id, role: 'client' });
+    const c = await Contact.create({ workspaceId: ws2._id, email: 'buyer@acme.test' });
+    const open = await Deal.create({ workspaceId: ws2._id, title: 'Acme', contactId: c._id, stage: 'quote' });
+    const taken = await Deal.create({ workspaceId: ws2._id, title: 'Other', contactId: c._id, stage: 'new', clientUserId: new (await import('mongoose')).default.Types.ObjectId() });
+    expect(await auth.linkClientDeals(u)).toBe(1);
+    expect(String((await Deal.findById(open._id)).clientUserId)).toBe(String(u._id));
+    expect(String((await Deal.findById(taken._id)).clientUserId)).not.toBe(String(u._id));
+  });
+});

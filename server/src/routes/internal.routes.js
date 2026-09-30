@@ -171,14 +171,15 @@ internalRouter.post(
     }),
   ),
   asyncHandler(async (req, res) => {
+    const enrollmentId = req.body.enrollmentId || (await resolveReplyEnrollment(req.body));
+    // Not a reply to one of our sends (newsletter, unrelated mail): ignore
+    // before spending an AI call on it.
+    if (!enrollmentId) return ok(res, { matched: false });
     // Classify here if n8n didn't (single source of truth for mapping).
     let replyClass = req.body.replyClass;
     if (!replyClass && req.body.replyText) {
       replyClass = (await classifyReply({ replyText: req.body.replyText })).class;
     }
-    const enrollmentId = req.body.enrollmentId || (await resolveReplyEnrollment(req.body));
-    // Not a reply to one of our sends (newsletter, unrelated mail): ignore quietly.
-    if (!enrollmentId) return ok(res, { matched: false });
     const result = await handleReply({ ...req.body, enrollmentId, replyClass: replyClass ?? 'needs_review' });
     return ok(res, result);
   }),

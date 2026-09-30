@@ -30,6 +30,9 @@ async function defaultWorkspace() {
   return Workspace.findOne().sort({ createdAt: 1 });
 }
 
+const escapeHtml = (v) =>
+  String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
 /* ---- Inbound enquiry → lead + deal ---- */
 publicRouter.post(
   '/enquiries',
@@ -88,7 +91,11 @@ publicRouter.post(
     if (!ws) return ok(res, { received: true });
     const { name, email, company, message, projectType, budget } = req.body;
 
-    const qualified = await qualifyEnquiry({ message, budget, projectType });
+    // Never keep a visitor waiting on the AI: 6s budget, then a safe default.
+    const qualified = await Promise.race([
+      qualifyEnquiry({ message, budget, projectType }).catch(() => null),
+      new Promise((r) => setTimeout(() => r(null), 6000)),
+    ]).then((q) => q ?? { tier: 'warm', summary: String(message).slice(0, 140), reasoning: 'timeout' });
 
     const result = await withTransaction(async (session) => {
       const [org] = await Organization.create([{ workspaceId: ws._id, name: company || name }], { session, ordered: true });
@@ -118,7 +125,7 @@ publicRouter.post(
       sendTransactional({
         to: email,
         subject: 'Thanks for reaching out to Klyro',
-        htmlContent: `<p>Hi ${name}, thanks for your project enquiry — we'll get back to you shortly.</p>`,
+        htmlContent: `<p>Hi ${escapeHtml(name)}, thanks for your project enquiry — we'll get back to you shortly.</p>`,
       }).catch(() => {});
       alertPositiveReply({ leadTitle: `New project request (${qualified.tier}): ${company || name}`, dealId: result.dealId, snippet: qualified.summary }).catch(() => {});
     }
