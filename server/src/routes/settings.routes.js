@@ -77,6 +77,7 @@ scrapeRouter.post(
   validateBody(
     z.object({
       name: z.string().trim().min(1),
+      group: z.string().trim().max(60).optional(),
       source: z.enum(['maps', 'reddit']).default('maps'),
       communities: z.array(z.string()).default([]),
       country: z.string().default('US'),
@@ -99,6 +100,7 @@ scrapeRouter.post(
     const target = await ScrapeTarget.findOne({ workspaceId: req.workspaceId, _id: req.params.id }).lean();
     if (!target) throw ApiError.notFound('Lead source not found');
     const args = { workspaceId: req.workspaceId, scrapeTargetId: req.params.id, createdBy: req.auth.userId };
+    await ScrapeTarget.updateOne({ _id: target._id }, { $set: { lastRunAt: new Date() } });
     return created(res, target.source === 'reddit' ? await startRedditJob(args) : await startScrapeJob(args));
   }),
 );
@@ -107,6 +109,7 @@ const targetEdit = z
   .object({
     active: z.boolean(),
     name: z.string().trim().min(1),
+    group: z.string().trim().max(60),
     communities: z.array(z.string()),
     country: z.string(),
     cities: z.array(z.string()),
@@ -153,7 +156,13 @@ scrapeRouter.get(
   '/jobs',
   asyncHandler(async (req, res) => {
     await closeStaleJobs(req.workspaceId);
-    const filter = req.query.targetId ? { scrapeTargetId: req.query.targetId } : {};
+    const filter = {};
+    if (req.query.status) filter.status = req.query.status === 'running' ? { $in: LIVE } : req.query.status;
+    if (req.query.targetId) filter.scrapeTargetId = req.query.targetId;
+    else if (req.query.source) {
+      const ids = await ScrapeTarget.find({ workspaceId: req.workspaceId, ...(req.query.source === 'maps' ? { source: { $ne: 'reddit' } } : { source: 'reddit' }) }).distinct('_id');
+      filter.scrapeTargetId = { $in: ids };
+    }
     const result = await listScoped(ScrapeJob, { workspaceId: req.workspaceId, query: req.query, filter, sort: { createdAt: -1 } });
     return ok(res, result.items, result.meta);
   }),

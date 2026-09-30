@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Plus, Play, Upload, Pencil, Pause, Trash2, Square, ExternalLink } from 'lucide-react';
@@ -9,7 +9,7 @@ import { PageHeader } from '../components/PageHeader.jsx';
 import { Dialog } from '../components/ui/Dialog.jsx';
 import { Card, Button, Input, Label, Select, Badge, Spinner, EmptyState, Textarea } from '../components/ui/index.jsx';
 
-const EMPTY = { source: 'maps', name: '', categories: '', cities: '', country: 'US', maxResults: 100, hasWebsite: 'any', minRating: '', communities: 'forhire, b2bforhire, hireaprogrammer, startups, Entrepreneur, smallbusiness, ecommerce, SaaS', keywords: 'looking for a developer, hire a developer, need an app built, looking for an agency, need a website built, app development company, developer to build', minIntent: 55, maxAgeDays: 14 };
+const EMPTY = { source: 'maps', group: '', name: '', categories: '', cities: '', country: 'US', maxResults: 100, hasWebsite: 'any', minRating: '', communities: 'forhire, b2bforhire, hireaprogrammer, startups, Entrepreneur, smallbusiness, ecommerce, SaaS', keywords: 'looking for a developer, hire a developer, need an app built, looking for an agency, need a website built, app development company, developer to build', minIntent: 55, maxAgeDays: 14 };
 const RUNNING = new Set(['queued', 'running', 'ingesting']);
 const JOB_TONE = { queued: 'default', running: 'warning', ingesting: 'warning', enriched: 'success', failed: 'destructive' };
 
@@ -26,7 +26,8 @@ export function targetPayload(form) {
     const keywords = splitList(form.keywords);
     return {
       source: 'reddit',
-      name: form.name.trim() || `Reddit: ${keywords.slice(0, 2).join(', ')}`,
+      ...(form.group?.trim() ? { group: form.group.trim() } : {}),
+      name: form.name.trim() || `Reddit: ${keywords.slice(0, 2).join(', ') || communities.slice(0, 2).join(', ')}`,
       communities,
       keywords,
       maxResults: Math.min(Math.max(Number(form.maxResults) || 50, 1), 500),
@@ -40,6 +41,7 @@ export function targetPayload(form) {
   if (form.hasWebsite === 'no') filters.hasWebsite = false;
   if (form.minRating !== '' && !Number.isNaN(Number(form.minRating))) filters.minRating = Number(form.minRating);
   return {
+    ...(form.group?.trim() ? { group: form.group.trim() } : {}),
     name: form.name.trim() || `${categories.join(', ')} in ${cities.join(', ') || form.country}`,
     country: form.country,
     categories,
@@ -55,6 +57,7 @@ export function formFromTarget(t) {
   return {
     ...EMPTY,
     source: t.source || 'maps',
+    group: t.group || '',
     name: t.name || '',
     categories: (t.categories || []).join(', '),
     cities: (t.cities || []).join(', '),
@@ -188,6 +191,15 @@ export default function Targets() {
   const [editId, setEditId] = useState(null);
   const [jobId, setJobId] = useState(null);
   const [runFilter, setRunFilter] = useState('');
+  // Saved-search filters
+  const [fSource, setFSource] = useState('');
+  const [fGroup, setFGroup] = useState('');
+  const [fStatus, setFStatus] = useState('');
+  const [fText, setFText] = useState('');
+  // Run filters
+  const [rStatus, setRStatus] = useState('');
+  const [rSource, setRSource] = useState('');
+  const [rPage, setRPage] = useState(1);
   const fileRef = useRef(null);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -196,17 +208,44 @@ export default function Targets() {
     queryFn: () => unwrap(api.get('/admin/scrape/targets')),
   });
   const jobs = useQuery({
-    queryKey: ['scrape-jobs', runFilter],
-    queryFn: () => unwrap(api.get('/admin/scrape/jobs', { params: { limit: 50, ...(runFilter ? { targetId: runFilter } : {}) } })),
+    queryKey: ['scrape-jobs', runFilter, rStatus, rSource, rPage],
+    queryFn: async () =>
+      (
+        await api.get('/admin/scrape/jobs', {
+          params: { limit: 25, page: rPage, ...(runFilter ? { targetId: runFilter } : {}), ...(rStatus ? { status: rStatus } : {}), ...(rSource && !runFilter ? { source: rSource } : {}) },
+        })
+      ).data,
+    placeholderData: (prev) => prev,
     // Poll while anything is in flight so progress updates live.
     refetchInterval: (q) => {
-      const rows = Array.isArray(q.state.data) ? q.state.data : q.state.data?.items || [];
+      const rows = q.state.data?.data || [];
       return rows.some((j) => RUNNING.has(j.status)) ? 5000 : false;
     },
   });
   const targetRows = Array.isArray(targets.data) ? targets.data : targets.data?.items || [];
-  const jobRows = Array.isArray(jobs.data) ? jobs.data : jobs.data?.items || [];
+  const jobRows = jobs.data?.data || [];
+  const jobPages = Math.max(1, jobs.data?.meta?.pages ?? 1);
+  const targetById = Object.fromEntries(targetRows.map((t) => [String(t._id || t.id), t]));
   const targetName = Object.fromEntries(targetRows.map((t) => [String(t._id || t.id), t.name]));
+  const srcOf = (t) => (t?.source === 'reddit' ? 'reddit' : 'maps');
+  const groups = useMemo(
+    () => [...new Set(targetRows.filter((t) => !fSource || srcOf(t) === fSource).map((t) => t.group || 'Ungrouped'))].sort(),
+    [targetRows, fSource],
+  );
+  const shown = useMemo(() => {
+    const needle = fText.trim().toLowerCase();
+    return targetRows
+      .filter((t) => !fSource || srcOf(t) === fSource)
+      .filter((t) => !fGroup || (t.group || 'Ungrouped') === fGroup)
+      .filter((t) => !fStatus || (fStatus === 'paused' ? t.active === false : t.active !== false))
+      .filter(
+        (t) =>
+          !needle ||
+          [t.name, t.group, ...(t.categories || []), ...(t.keywords || []), ...(t.cities || []), ...(t.communities || [])].join(' ').toLowerCase().includes(needle),
+      )
+      .sort((a, b) => srcOf(a).localeCompare(srcOf(b)) || (a.group || 'Ungrouped').localeCompare(b.group || 'Ungrouped') || a.name.localeCompare(b.name));
+  }, [targetRows, fSource, fGroup, fStatus, fText]);
+  const counts = { all: targetRows.length, maps: targetRows.filter((t) => srcOf(t) === 'maps').length, reddit: targetRows.filter((t) => srcOf(t) === 'reddit').length };
 
   const create = useMutation({
     mutationFn: (body) => unwrap(editId ? api.patch(`/admin/scrape/targets/${editId}`, body) : api.post('/admin/scrape/targets', body)),
@@ -260,7 +299,8 @@ export default function Targets() {
   });
 
   const payload = targetPayload(form);
-  const canSave = form.source === 'reddit' ? payload.keywords.length > 0 && payload.communities.length > 0 : payload.categories.length > 0;
+  // Hiring boards need no phrases (they're read in full), so only subreddits are required.
+  const canSave = form.source === 'reddit' ? payload.communities.length > 0 : payload.categories.length > 0;
 
   return (
     <div className="space-y-6">
@@ -286,7 +326,50 @@ export default function Targets() {
       />
 
       <Card className="overflow-hidden">
-        <div className="border-b border-border px-4 py-3 text-sm font-semibold">Saved searches</div>
+        <div className="space-y-3 border-b border-border px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-semibold">
+              Saved searches <span className="font-normal text-muted-foreground">· {shown.length} shown</span>
+            </span>
+            <div className="flex rounded-lg border border-border p-0.5 text-xs" role="tablist" aria-label="Source">
+              {[
+                ['', `All (${counts.all})`],
+                ['maps', `Google Maps (${counts.maps})`],
+                ['reddit', `Reddit (${counts.reddit})`],
+              ].map(([v, label]) => (
+                <button
+                  key={v || 'all'}
+                  type="button"
+                  role="tab"
+                  aria-selected={fSource === v}
+                  onClick={() => {
+                    setFSource(v);
+                    setFGroup('');
+                  }}
+                  className={`min-h-9 rounded-md px-3 ${fSource === v ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <Input aria-label="Search saved searches" placeholder="Search name, niche, city, subreddit…" value={fText} onChange={(e) => setFText(e.target.value)} />
+            <Select aria-label="Filter by category" value={fGroup} onChange={(e) => setFGroup(e.target.value)}>
+              <option value="">All categories</option>
+              {groups.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </Select>
+            <Select aria-label="Filter by status" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
+              <option value="">Active and paused</option>
+              <option value="active">Active only</option>
+              <option value="paused">Paused only</option>
+            </Select>
+          </div>
+        </div>
         {targets.isLoading ? (
           <div className="flex justify-center py-12">
             <Spinner />
@@ -308,14 +391,33 @@ export default function Targets() {
                   <th className="px-4 py-3">Looking for</th>
                   <th className="px-4 py-3">Where</th>
                   <th className="px-4 py-3">Max</th>
+                  <th className="px-4 py-3">Last run</th>
                   <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {targetRows.map((t) => {
+                {shown.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                      No searches match these filters.
+                    </td>
+                  </tr>
+                )}
+                {shown.map((t, i) => {
                   const id = String(t._id || t.id);
+                  const header = `${srcOf(t)}|${t.group || 'Ungrouped'}`;
+                  const prev = shown[i - 1];
+                  const newGroup = !prev || `${srcOf(prev)}|${prev.group || 'Ungrouped'}` !== header;
                   return (
-                    <tr key={id} className={`border-b border-border/60 ${t.active === false ? 'opacity-60' : ''}`}>
+                    <Fragment key={id}>
+                    {newGroup && (
+                      <tr className="border-b border-border bg-muted/40">
+                        <th colSpan={7} scope="colgroup" className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {srcOf(t) === 'reddit' ? 'Reddit' : 'Google Maps'} · {t.group || 'Ungrouped'}
+                        </th>
+                      </tr>
+                    )}
+                    <tr className={`border-b border-border/60 ${t.active === false ? 'opacity-60' : ''}`}>
                       <td className="px-4 py-3 font-medium">
                         <button type="button" className="text-left hover:underline" onClick={() => setRunFilter(id)} title="Show this search's runs">
                           {t.name}
@@ -327,13 +429,14 @@ export default function Targets() {
                       <td className="px-4 py-3">
                         <Badge variant={t.source === 'reddit' ? 'warning' : 'primary'}>{t.source === 'reddit' ? 'Reddit' : 'Google Maps'}</Badge>
                       </td>
-                      <td className="max-w-[16rem] truncate px-4 py-3">{[...(t.categories || []), ...(t.keywords || [])].join(', ') || '—'}</td>
+                      <td className="max-w-[16rem] truncate px-4 py-3">{[...(t.categories || []), ...(t.keywords || [])].join(', ') || (t.source === 'reddit' ? '[Hiring] posts' : '—')}</td>
                       <td className="max-w-[14rem] truncate px-4 py-3">
                         {t.source === 'reddit'
                           ? (t.communities || []).map((c) => `r/${c}`).join(', ') || 'r/smallbusiness'
                           : `${(t.cities || []).join(', ') || 'Whole country'} · ${t.country}`}
                       </td>
                       <td className="px-4 py-3">{t.maxResults}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{t.lastRunAt ? formatDate(t.lastRunAt) : 'never'}</td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-1">
                           <Button size="sm" onClick={() => run.mutate(id)} disabled={run.isPending && run.variables === id} aria-label={`Run ${t.name}`}>
@@ -362,6 +465,7 @@ export default function Targets() {
                         </div>
                       </td>
                     </tr>
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -371,21 +475,62 @@ export default function Targets() {
       </Card>
 
       <Card className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <span className="flex items-center gap-2 text-sm font-semibold">
-            Recent runs
-            {runFilter && (
-              <button type="button" className="rounded-full border border-border px-2 py-0.5 text-xs font-normal hover:bg-muted" onClick={() => setRunFilter('')}>
-                {targetName[runFilter] || 'one search'} ✕
-              </button>
-            )}
-            <span className="text-xs font-normal text-muted-foreground">— click a run for details</span>
-          </span>
-          {jobRows.some((j) => RUNNING.has(j.status)) && (
-            <span className="text-xs text-muted-foreground" aria-live="polite">
-              Updating live…
+        <div className="space-y-3 border-b border-border px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-semibold">
+              Recent runs <span className="font-normal text-muted-foreground">· click a run for details</span>
             </span>
-          )}
+            {jobRows.some((j) => RUNNING.has(j.status)) && (
+              <span className="text-xs text-muted-foreground" aria-live="polite">
+                Updating live…
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <Select
+              aria-label="Filter runs by search"
+              value={runFilter}
+              onChange={(e) => {
+                setRunFilter(e.target.value);
+                setRPage(1);
+              }}
+            >
+              <option value="">All searches</option>
+              {[...targetRows]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((t) => (
+                  <option key={String(t._id || t.id)} value={String(t._id || t.id)}>
+                    {t.name}
+                  </option>
+                ))}
+            </Select>
+            <Select
+              aria-label="Filter runs by source"
+              value={rSource}
+              disabled={Boolean(runFilter)}
+              onChange={(e) => {
+                setRSource(e.target.value);
+                setRPage(1);
+              }}
+            >
+              <option value="">All sources</option>
+              <option value="maps">Google Maps</option>
+              <option value="reddit">Reddit</option>
+            </Select>
+            <Select
+              aria-label="Filter runs by status"
+              value={rStatus}
+              onChange={(e) => {
+                setRStatus(e.target.value);
+                setRPage(1);
+              }}
+            >
+              <option value="">Any status</option>
+              <option value="running">Running / queued</option>
+              <option value="enriched">Done</option>
+              <option value="failed">Failed / stopped</option>
+            </Select>
+          </div>
         </div>
         {jobs.isLoading ? (
           <div className="flex justify-center py-10">
@@ -393,7 +538,7 @@ export default function Targets() {
           </div>
         ) : jobRows.length === 0 ? (
           <div className="p-5">
-            <EmptyState title="No runs yet" hint="Runs show here with live progress." />
+            <EmptyState title={runFilter || rStatus || rSource ? 'No runs match these filters' : 'No runs yet'} hint="Runs show here with live progress." />
           </div>
         ) : (
           <div className="-mx-px overflow-x-auto overscroll-x-contain">
@@ -401,6 +546,7 @@ export default function Targets() {
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="px-4 py-3">Search</th>
+                  <th className="px-4 py-3">Source</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Found</th>
                   <th className="px-4 py-3">New leads</th>
@@ -417,7 +563,12 @@ export default function Targets() {
                     tabIndex={0}
                     aria-label="Open run details"
                   >
-                    <td className="px-4 py-3">{targetName[String(j.scrapeTargetId)] || '—'}</td>
+                    <td className="px-4 py-3">{targetName[String(j.scrapeTargetId)] || 'Deleted search'}</td>
+                    <td className="px-4 py-3">
+                      <Badge variant={srcOf(targetById[String(j.scrapeTargetId)]) === 'reddit' ? 'warning' : 'primary'}>
+                        {srcOf(targetById[String(j.scrapeTargetId)]) === 'reddit' ? 'Reddit' : 'Maps'}
+                      </Badge>
+                    </td>
                     <td className="px-4 py-3">
                       <Badge variant={JOB_TONE[j.status] || 'default'}>
                         {j.status === 'enriched' ? 'done' : j.status}
@@ -432,6 +583,19 @@ export default function Targets() {
               </tbody>
             </table>
           </div>
+        )}
+        {jobPages > 1 && (
+          <nav className="flex items-center justify-between border-t border-border px-4 py-3 text-sm" aria-label="Runs pagination">
+            <Button variant="secondary" size="sm" disabled={rPage <= 1} onClick={() => setRPage((p0) => p0 - 1)}>
+              Previous
+            </Button>
+            <span className="text-muted-foreground">
+              Page {rPage} of {jobPages}
+            </span>
+            <Button variant="secondary" size="sm" disabled={rPage >= jobPages} onClick={() => setRPage((p0) => p0 + 1)}>
+              Next
+            </Button>
+          </nav>
         )}
       </Card>
 
@@ -467,7 +631,7 @@ export default function Targets() {
           {form.source === 'reddit' ? (
             <>
               <div>
-                <Label htmlFor="keywords">Phrases buyers use *</Label>
+                <Label htmlFor="keywords">Phrases buyers use</Label>
                 <Textarea id="keywords" rows={2} value={form.keywords} onChange={set('keywords')} />
                 <p className="mt-1 text-xs text-muted-foreground">
                   Comma-separated, searched in each subreddit. Hiring boards (r/forhire, r/b2bforhire, r/hireaprogrammer) are read
@@ -538,6 +702,15 @@ export default function Targets() {
           </div>
           </>
           )}
+          <div>
+            <Label htmlFor="group">Category (optional)</Label>
+            <Input id="group" list="target-groups" value={form.group} onChange={set('group')} placeholder="e.g. Home services" />
+            <datalist id="target-groups">
+              {[...new Set(targetRows.map((t) => t.group).filter(Boolean))].sort().map((g) => (
+                <option key={g} value={g} />
+              ))}
+            </datalist>
+          </div>
           <div>
             <Label htmlFor="name">Name (optional)</Label>
             <Input id="name" value={form.name} onChange={set('name')} placeholder={payload.name || 'Austin dentists'} />

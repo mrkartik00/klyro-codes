@@ -453,11 +453,19 @@ export async function startRedditJob({ workspaceId, scrapeTargetId, createdBy })
   return job;
 }
 
-/** Scheduled scan (n8n every 30 min): all active reddit sources in a workspace. */
+/**
+ * Scheduled scan (n8n every 30 min). Without API keys Reddit allows only a few
+ * requests a minute, so each scan runs the 2 least-recently-scanned searches
+ * (each covers 3 subreddits); with keys, all of them.
+ */
 export async function scanAllReddit({ workspaceId }) {
-  const targets = await ScrapeTarget.find({ workspaceId, source: 'reddit', active: true, deletedAt: null });
+  const perScan = env.REDDIT_CLIENT_ID ? 0 : 2;
+  let q = ScrapeTarget.find({ workspaceId, source: 'reddit', active: true, deletedAt: null }).sort({ lastRunAt: 1, createdAt: 1 });
+  if (perScan) q = q.limit(perScan);
+  const targets = await q;
   const results = [];
   for (const target of targets) {
+    await ScrapeTarget.updateOne({ _id: target._id }, { $set: { lastRunAt: new Date() } });
     const job = await ScrapeJob.create({ workspaceId, scrapeTargetId: target._id, status: 'queued', requested: target.maxResults ?? 50 });
     results.push({ target: target.name, ...(await runRedditTarget({ workspaceId, target, job }).catch((e) => ({ error: e.message }))) });
   }

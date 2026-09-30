@@ -3,6 +3,8 @@ import { basePlugin } from './plugins/base.js';
 
 const scrapeTargetSchema = new mongoose.Schema({
   name: { type: String, required: true },
+  group: { type: String, trim: true, index: true }, // for arranging searches in the admin (e.g. 'Home services')
+  lastRunAt: { type: Date }, // scheduled reddit scans rotate oldest-first
   // maps = Google Maps businesses; reddit = people asking for help (social listening)
   source: { type: String, enum: ['maps', 'reddit'], default: 'maps', index: true },
   communities: { type: [String], default: [] }, // reddit: subreddit names without r/
