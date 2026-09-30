@@ -42,7 +42,8 @@ describe('prefilter', () => {
 describe('sourceStatus', () => {
   it('reports keys needed per source', () => {
     const s = Object.fromEntries(sourceStatus().map((x) => [x.id, x]));
-    expect(s.freelancer.ready).toBe(true);
-    expect(s.bluesky.missing).toEqual(expect.arrayContaining(['BSKY_HANDLE']));
+    expect(s.freelancer).toMatchObject({ ready: true, missing: [] });
+    // Keyed sources: ready exactly when nothing is missing (independent of this machine's .env).
+    for (const id of ['bluesky', 'brave', 'x', 'companieshouse']) expect(s[id].ready).toBe(s[id].missing.length === 0);
   });
 });
