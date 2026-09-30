@@ -356,9 +356,14 @@ export async function runRedditTarget({ workspaceId, target, job }) {
   const seen = new Set();
   let found = 0;
   let created = 0;
+  const stats = { checked: 0, filtered: 0, duplicates: 0, notBuyer: 0, lowIntent: 0 };
+  const log = [];
+  const note = (line) => {
+    if (log.length < 200) log.push(`${new Date().toISOString().slice(11, 19)} ${line}`);
+  };
   const progress = async (patch) => {
     if (!job) return;
-    Object.assign(job, patch);
+    Object.assign(job, patch, { stats: { ...stats }, log: [...log] });
     await job.save().catch(() => {});
     emitToWorkspace(workspaceId, 'scrape:progress', { scrapeJobId: job._id, status: job.status, found: job.found, ingested: job.ingested });
   };
@@ -393,18 +398,40 @@ export async function runRedditTarget({ workspaceId, target, job }) {
           } else {
             logger.warn({ err, community }, 'reddit fetch failed');
           }
+          if (!posts.length) note(`r/${community}: fetch failed (${String(err.message).slice(0, 80)})`);
         }
+        const before = { created, found };
         for (const post of posts) {
           if (seen.has(post.id) || created >= limit) continue;
           seen.add(post.id);
-          if (!looksLikeBuyer(post, { maxAgeDays })) continue;
-          if (await Lead.exists({ workspaceId, 'intent.externalId': post.id })) continue;
+          stats.checked += 1;
+          if (!looksLikeBuyer(post, { maxAgeDays })) {
+            stats.filtered += 1;
+            continue;
+          }
+          if (await Lead.exists({ workspaceId, 'intent.externalId': post.id })) {
+            stats.duplicates += 1;
+            continue;
+          }
           found += 1;
           const q = await qualify(post);
-          if (q.role !== 'buyer' || q.intent < minIntent) continue;
-          const r = await saveRedditLead({ workspaceId, post, q, targetId: target._id });
-          if (r.created) created += 1;
+          if (q.role !== 'buyer') {
+            stats.notBuyer += 1;
+            note(`skipped (${q.role}): ${post.title.slice(0, 90)}`);
+            continue;
+          }
+          if (q.intent < minIntent) {
+            stats.lowIntent += 1;
+            note(`skipped (intent ${Math.round(q.intent * 100)}%): ${post.title.slice(0, 90)}`);
+            continue;
+          }
+          const r = await saveRedditLead({ workspaceId, post, q, targetId: job?._id ?? target._id });
+          if (r.created) {
+            created += 1;
+            note(`NEW LEAD: ${post.title.slice(0, 90)}`);
+          }
         }
+        note(`r/${community}: ${posts.length} posts read, ${found - before.found} candidates, ${created - before.created} new leads`);
         await progress({ found, ingested: created });
         await sleep(6000); // be polite to Reddit
       }

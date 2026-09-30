@@ -40,6 +40,9 @@ const scrapeJobSchema = new mongoose.Schema({
   ingested: { type: Number, default: 0 },
   progressPct: { type: Number, default: 0 },
   error: { type: String },
+  // What the run did, for the run detail view (capped).
+  log: { type: [String], default: [] },
+  stats: { type: mongoose.Schema.Types.Mixed, default: {} },
   startedAt: { type: Date },
   finishedAt: { type: Date },
 });

@@ -10,6 +10,8 @@ import { AuditLog } from '../models/AuditLog.js';
 import { ScrapeTarget } from '../models/ScrapeTarget.js';
 import { ScrapeJob } from '../models/ScrapeTarget.js';
 import { Organization } from '../models/Organization.js';
+import { Lead } from '../models/Lead.js';
+import { LeadSource } from '../models/LeadSource.js';
 import { Enrollment } from '../models/Enrollment.js';
 import { startScrapeJob, importLeadsCsv } from '../services/scrape.service.js';
 import { startRedditJob } from '../services/social.service.js';
@@ -100,21 +102,91 @@ scrapeRouter.post(
     return created(res, target.source === 'reddit' ? await startRedditJob(args) : await startScrapeJob(args));
   }),
 );
-// Pause/resume a saved search (scheduled Reddit scans skip inactive ones).
+// Edit / pause / resume a saved search (scheduled scans skip inactive ones).
+const targetEdit = z
+  .object({
+    active: z.boolean(),
+    name: z.string().trim().min(1),
+    communities: z.array(z.string()),
+    country: z.string(),
+    cities: z.array(z.string()),
+    categories: z.array(z.string()),
+    keywords: z.array(z.string()),
+    filters: z.record(z.string(), z.any()),
+    maxResults: z.number().int().min(1).max(1000),
+  })
+  .partial();
 scrapeRouter.patch(
   '/targets/:id',
-  validateBody(z.object({ active: z.boolean().optional(), name: z.string().trim().min(1).optional() })),
+  validateBody(targetEdit),
   asyncHandler(async (req, res) => {
-    const t = await ScrapeTarget.findOneAndUpdate({ workspaceId: req.workspaceId, _id: req.params.id }, { $set: req.body }, { new: true });
+    const t = await ScrapeTarget.findOne({ workspaceId: req.workspaceId, _id: req.params.id, deletedAt: null });
     if (!t) throw ApiError.notFound('Lead source not found');
+    const { filters, ...rest } = req.body;
+    Object.assign(t, rest);
+    if (filters) t.filters = { ...(t.filters?.toObject?.() ?? {}), ...filters };
+    await t.save();
+    await writeAudit({ workspaceId: req.workspaceId, actorId: req.auth.userId, action: 'scrapeTarget.update', entity: 'scrapeTarget', entityId: t._id, meta: req.body });
     return ok(res, t);
   }),
 );
+scrapeRouter.delete(
+  '/targets/:id',
+  asyncHandler(async (req, res) => {
+    const r = await ScrapeTarget.updateOne({ workspaceId: req.workspaceId, _id: req.params.id, deletedAt: null }, { $set: { deletedAt: new Date(), active: false } });
+    if (!r.matchedCount) throw ApiError.notFound('Lead source not found');
+    await writeAudit({ workspaceId: req.workspaceId, actorId: req.auth.userId, action: 'scrapeTarget.delete', entity: 'scrapeTarget', entityId: req.params.id });
+    return ok(res, { deleted: true });
+  }),
+);
+
+const LIVE = ['queued', 'running', 'ingesting'];
+const STALE_MS = 45 * 60 * 1000;
+/** Runs that stopped reporting (server restart, killed process) are closed. */
+async function closeStaleJobs(workspaceId) {
+  await ScrapeJob.updateMany(
+    { workspaceId, status: { $in: LIVE }, updatedAt: { $lt: new Date(Date.now() - STALE_MS) } },
+    { $set: { status: 'failed', error: 'Stopped — no progress for 45 minutes', finishedAt: new Date() } },
+  );
+}
 scrapeRouter.get(
   '/jobs',
   asyncHandler(async (req, res) => {
-    const result = await listScoped(ScrapeJob, { workspaceId: req.workspaceId, query: req.query, sort: { createdAt: -1 } });
+    await closeStaleJobs(req.workspaceId);
+    const filter = req.query.targetId ? { scrapeTargetId: req.query.targetId } : {};
+    const result = await listScoped(ScrapeJob, { workspaceId: req.workspaceId, query: req.query, filter, sort: { createdAt: -1 } });
     return ok(res, result.items, result.meta);
+  }),
+);
+// One run in detail: settings used, progress, log and every lead it created.
+scrapeRouter.get(
+  '/jobs/:id',
+  asyncHandler(async (req, res) => {
+    const job = await ScrapeJob.findOne({ workspaceId: req.workspaceId, _id: req.params.id }).lean();
+    if (!job) throw ApiError.notFound('Run not found');
+    const target = job.scrapeTargetId ? await ScrapeTarget.findOne({ workspaceId: req.workspaceId, _id: job.scrapeTargetId }).lean() : null;
+    const sources = await LeadSource.find({ workspaceId: req.workspaceId, reference: String(job._id) }).select('leadId').lean();
+    const leads = await Lead.find({ workspaceId: req.workspaceId, _id: { $in: sources.map((x) => x.leadId) }, deletedAt: null })
+      .select('organizationId primaryContactId source sourceUrl stage score tags intent.need intent.title intent.community intent.author createdAt')
+      .populate('organizationId', 'name website phone city category')
+      .populate('primaryContactId', 'name email phone')
+      .sort({ score: -1 })
+      .limit(500)
+      .lean();
+    return ok(res, { job, target, leads });
+  }),
+);
+scrapeRouter.post(
+  '/jobs/:id/stop',
+  asyncHandler(async (req, res) => {
+    const job = await ScrapeJob.findOneAndUpdate(
+      { workspaceId: req.workspaceId, _id: req.params.id, status: { $in: LIVE } },
+      { $set: { status: 'failed', error: 'Stopped by admin', finishedAt: new Date() } },
+      { new: true },
+    );
+    if (!job) throw ApiError.notFound('No running job with that id');
+    await writeAudit({ workspaceId: req.workspaceId, actorId: req.auth.userId, action: 'scrapeJob.stop', entity: 'scrapeJob', entityId: job._id });
+    return ok(res, job);
   }),
 );
 

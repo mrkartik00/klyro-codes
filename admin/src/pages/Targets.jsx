@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Play, Upload } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Plus, Play, Upload, Pencil, Pause, Trash2, Square, ExternalLink } from 'lucide-react';
 import api, { unwrap } from '../lib/api.js';
 import { useToast } from '../hooks/useToast.jsx';
 import { formatDate } from '../lib/format.js';
@@ -48,6 +49,135 @@ export function targetPayload(form) {
   };
 }
 
+/** Prefill the form from a saved search (for editing). */
+export function formFromTarget(t) {
+  const f = t.filters || {};
+  return {
+    ...EMPTY,
+    source: t.source || 'maps',
+    name: t.name || '',
+    categories: (t.categories || []).join(', '),
+    cities: (t.cities || []).join(', '),
+    country: t.country || 'US',
+    maxResults: t.maxResults ?? 100,
+    hasWebsite: f.hasWebsite === true ? 'yes' : f.hasWebsite === false ? 'no' : 'any',
+    minRating: f.minRating ?? '',
+    communities: (t.communities || []).join(', '),
+    keywords: (t.keywords || []).join(', '),
+    minIntent: f.minIntent != null ? Math.round(f.minIntent * 100) : 55,
+    maxAgeDays: f.maxAgeDays ?? 14,
+  };
+}
+
+const STAT_LABEL = { checked: 'Posts read', filtered: 'Not a hire request', duplicates: 'Already saved', notBuyer: 'AI: not a buyer', lowIntent: 'AI: low intent' };
+
+/** One run in full: settings, progress, log and every lead it created. */
+function RunDetail({ jobId, onClose }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const q = useQuery({
+    queryKey: ['scrape-job', jobId],
+    queryFn: () => unwrap(api.get(`/admin/scrape/jobs/${jobId}`)),
+    enabled: Boolean(jobId),
+    refetchInterval: (x) => (RUNNING.has(x.state.data?.job?.status) ? 4000 : false),
+  });
+  const stop = useMutation({
+    mutationFn: () => unwrap(api.post(`/admin/scrape/jobs/${jobId}/stop`)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['scrape-jobs'] });
+      qc.invalidateQueries({ queryKey: ['scrape-job', jobId] });
+      toast.success('Run stopped');
+    },
+    onError: (e) => toast.error(e.message || 'Could not stop'),
+  });
+  const { job, target, leads = [] } = q.data || {};
+  const stats = Object.entries(job?.stats || {}).filter(([, v]) => v);
+  return (
+    <Dialog open={Boolean(jobId)} onClose={onClose} title={target ? `Run — ${target.name}` : 'Run details'} className="max-w-3xl!">
+      {q.isLoading || !job ? (
+        <div className="flex justify-center py-10">
+          <Spinner />
+        </div>
+      ) : (
+        <div className="space-y-5 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={JOB_TONE[job.status] || 'default'}>{job.status === 'enriched' ? 'done' : job.status}</Badge>
+            <span className="text-muted-foreground">
+              Started {formatDate(job.startedAt || job.createdAt)}
+              {job.finishedAt ? ` · finished ${formatDate(job.finishedAt)}` : ''}
+            </span>
+            {RUNNING.has(job.status) && (
+              <Button size="sm" variant="destructive" className="ml-auto" onClick={() => stop.mutate()} disabled={stop.isPending}>
+                <Square size={14} aria-hidden="true" /> Stop run
+              </Button>
+            )}
+          </div>
+          {job.error && <p className="rounded-lg border border-red-800 bg-red-950/40 p-3 text-red-300">{job.error}</p>}
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              ['Requested', job.requested ?? 0],
+              ['Found', job.found ?? 0],
+              ['New leads', job.ingested ?? 0],
+              ...stats.map(([k, v]) => [STAT_LABEL[k] || k, v]),
+            ].map(([k, v]) => (
+              <div key={k} className="rounded-lg border border-border p-3">
+                <dt className="text-xs text-muted-foreground">{k}</dt>
+                <dd className="text-lg font-semibold tabular-nums">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          {target && (
+            <div className="rounded-lg border border-border p-3 text-xs text-muted-foreground">
+              <p>
+                <span className="font-medium text-foreground">Looking for:</span> {[...(target.categories || []), ...(target.keywords || [])].join(', ') || '—'}
+              </p>
+              <p className="mt-1">
+                <span className="font-medium text-foreground">Where:</span>{' '}
+                {target.source === 'reddit'
+                  ? (target.communities || []).map((c) => `r/${c}`).join(', ')
+                  : `${(target.cities || []).join(', ') || 'Whole country'} · ${target.country}`}
+              </p>
+            </div>
+          )}
+          <section>
+            <h3 className="mb-2 font-semibold">Leads from this run ({leads.length})</h3>
+            {leads.length === 0 ? (
+              <p className="text-muted-foreground">No new leads in this run.</p>
+            ) : (
+              <ul className="divide-y divide-border rounded-lg border border-border">
+                {leads.map((l) => {
+                  const org = l.organizationId || {};
+                  const c = l.primaryContactId || {};
+                  return (
+                    <li key={l._id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+                      <Link to={`/leads/${l._id}`} className="min-w-0 flex-1 truncate font-medium hover:underline">
+                        {org.name || l.intent?.title || 'Lead'}
+                      </Link>
+                      <span className="text-xs text-muted-foreground">{[c.email, c.phone || org.phone, org.city].filter(Boolean).join(' · ')}</span>
+                      <Badge>{l.score ?? 0}</Badge>
+                      {l.sourceUrl && (
+                        <a href={l.sourceUrl} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground" aria-label="Open original post">
+                          <ExternalLink size={14} aria-hidden="true" />
+                        </a>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+          {job.log?.length > 0 && (
+            <section>
+              <h3 className="mb-2 font-semibold">Log</h3>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-3 text-xs">{job.log.join('\n')}</pre>
+            </section>
+          )}
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
 export default function Targets() {
   const qc = useQueryClient();
   const toast = useToast();
@@ -55,6 +185,9 @@ export default function Targets() {
   const [csvOpen, setCsvOpen] = useState(false);
   const [form, setForm] = useState(EMPTY);
   const [csv, setCsv] = useState('');
+  const [editId, setEditId] = useState(null);
+  const [jobId, setJobId] = useState(null);
+  const [runFilter, setRunFilter] = useState('');
   const fileRef = useRef(null);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -63,8 +196,8 @@ export default function Targets() {
     queryFn: () => unwrap(api.get('/admin/scrape/targets')),
   });
   const jobs = useQuery({
-    queryKey: ['scrape-jobs'],
-    queryFn: () => unwrap(api.get('/admin/scrape/jobs')),
+    queryKey: ['scrape-jobs', runFilter],
+    queryFn: () => unwrap(api.get('/admin/scrape/jobs', { params: { limit: 50, ...(runFilter ? { targetId: runFilter } : {}) } })),
     // Poll while anything is in flight so progress updates live.
     refetchInterval: (q) => {
       const rows = Array.isArray(q.state.data) ? q.state.data : q.state.data?.items || [];
@@ -76,11 +209,12 @@ export default function Targets() {
   const targetName = Object.fromEntries(targetRows.map((t) => [String(t._id || t.id), t.name]));
 
   const create = useMutation({
-    mutationFn: (body) => unwrap(api.post('/admin/scrape/targets', body)),
+    mutationFn: (body) => unwrap(editId ? api.patch(`/admin/scrape/targets/${editId}`, body) : api.post('/admin/scrape/targets', body)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['scrape-targets'] });
-      toast.success('Target saved — press Run to start scraping');
+      toast.success(editId ? 'Search updated' : 'Search saved — press Run to start');
       setOpen(false);
+      setEditId(null);
       setForm(EMPTY);
     },
     onError: (e) => toast.error(e.message || 'Could not save target'),
@@ -93,6 +227,27 @@ export default function Targets() {
     },
     onError: (e) => toast.error(e.message || 'Could not start scrape'),
   });
+  const toggle = useMutation({
+    mutationFn: ({ id, active }) => unwrap(api.patch(`/admin/scrape/targets/${id}`, { active })),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['scrape-targets'] });
+      toast.success(v.active ? 'Search resumed' : 'Search paused — scheduled scans skip it');
+    },
+    onError: (e) => toast.error(e.message || 'Could not update'),
+  });
+  const remove = useMutation({
+    mutationFn: (id) => unwrap(api.delete(`/admin/scrape/targets/${id}`)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['scrape-targets'] });
+      toast.success('Search deleted (its leads are kept)');
+    },
+    onError: (e) => toast.error(e.message || 'Could not delete'),
+  });
+  const openEdit = (t) => {
+    setEditId(String(t._id || t.id));
+    setForm(formFromTarget(t));
+    setOpen(true);
+  };
   const importCsv = useMutation({
     mutationFn: (text) => unwrap(api.post('/admin/scrape/import-csv', { csv: text })),
     onSuccess: (d) => {
@@ -117,7 +272,13 @@ export default function Targets() {
             <Button variant="secondary" onClick={() => setCsvOpen(true)}>
               <Upload size={16} aria-hidden="true" /> Import CSV
             </Button>
-            <Button onClick={() => setOpen(true)}>
+            <Button
+              onClick={() => {
+                setEditId(null);
+                setForm(EMPTY);
+                setOpen(true);
+              }}
+            >
               <Plus size={16} aria-hidden="true" /> New search
             </Button>
           </>
@@ -154,8 +315,15 @@ export default function Targets() {
                 {targetRows.map((t) => {
                   const id = String(t._id || t.id);
                   return (
-                    <tr key={id} className="border-b border-border/60">
-                      <td className="px-4 py-3 font-medium">{t.name}</td>
+                    <tr key={id} className={`border-b border-border/60 ${t.active === false ? 'opacity-60' : ''}`}>
+                      <td className="px-4 py-3 font-medium">
+                        <button type="button" className="text-left hover:underline" onClick={() => setRunFilter(id)} title="Show this search's runs">
+                          {t.name}
+                        </button>
+                        {t.active === false && (
+                          <Badge className="ml-2">Paused</Badge>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <Badge variant={t.source === 'reddit' ? 'warning' : 'primary'}>{t.source === 'reddit' ? 'Reddit' : 'Google Maps'}</Badge>
                       </td>
@@ -166,15 +334,32 @@ export default function Targets() {
                           : `${(t.cities || []).join(', ') || 'Whole country'} · ${t.country}`}
                       </td>
                       <td className="px-4 py-3">{t.maxResults}</td>
-                      <td className="px-4 py-3 text-right">
-                        <Button
-                          size="sm"
-                          onClick={() => run.mutate(id)}
-                          disabled={run.isPending && run.variables === id}
-                          aria-label={`Run ${t.name}`}
-                        >
-                          <Play size={14} aria-hidden="true" /> Run
-                        </Button>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-1">
+                          <Button size="sm" onClick={() => run.mutate(id)} disabled={run.isPending && run.variables === id} aria-label={`Run ${t.name}`}>
+                            <Play size={14} aria-hidden="true" /> Run
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => openEdit(t)} aria-label={`Edit ${t.name}`}>
+                            <Pencil size={14} aria-hidden="true" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => toggle.mutate({ id, active: t.active === false })}
+                            aria-label={t.active === false ? `Resume ${t.name}` : `Pause ${t.name}`}
+                            title={t.active === false ? 'Resume' : 'Pause'}
+                          >
+                            {t.active === false ? <Play size={14} aria-hidden="true" /> : <Pause size={14} aria-hidden="true" />}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => window.confirm(`Delete "${t.name}"? Leads it found are kept.`) && remove.mutate(id)}
+                            aria-label={`Delete ${t.name}`}
+                          >
+                            <Trash2 size={14} aria-hidden="true" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -187,7 +372,15 @@ export default function Targets() {
 
       <Card className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <span className="text-sm font-semibold">Recent runs</span>
+          <span className="flex items-center gap-2 text-sm font-semibold">
+            Recent runs
+            {runFilter && (
+              <button type="button" className="rounded-full border border-border px-2 py-0.5 text-xs font-normal hover:bg-muted" onClick={() => setRunFilter('')}>
+                {targetName[runFilter] || 'one search'} ✕
+              </button>
+            )}
+            <span className="text-xs font-normal text-muted-foreground">— click a run for details</span>
+          </span>
           {jobRows.some((j) => RUNNING.has(j.status)) && (
             <span className="text-xs text-muted-foreground" aria-live="polite">
               Updating live…
@@ -216,7 +409,14 @@ export default function Targets() {
               </thead>
               <tbody>
                 {jobRows.map((j) => (
-                  <tr key={String(j._id || j.id)} className="border-b border-border/60">
+                  <tr
+                    key={String(j._id || j.id)}
+                    className="cursor-pointer border-b border-border/60 hover:bg-muted/50"
+                    onClick={() => setJobId(String(j._id || j.id))}
+                    onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setJobId(String(j._id || j.id))}
+                    tabIndex={0}
+                    aria-label="Open run details"
+                  >
                     <td className="px-4 py-3">{targetName[String(j.scrapeTargetId)] || '—'}</td>
                     <td className="px-4 py-3">
                       <Badge variant={JOB_TONE[j.status] || 'default'}>
@@ -235,7 +435,9 @@ export default function Targets() {
         )}
       </Card>
 
-      <Dialog open={open} onClose={() => setOpen(false)} title="New lead search">
+      <RunDetail jobId={jobId} onClose={() => setJobId(null)} />
+
+      <Dialog open={open} onClose={() => setOpen(false)} title={editId ? 'Edit lead search' : 'New lead search'}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -345,7 +547,7 @@ export default function Targets() {
               Cancel
             </Button>
             <Button type="submit" disabled={!canSave || create.isPending}>
-              {create.isPending ? 'Saving…' : 'Save search'}
+              {create.isPending ? 'Saving…' : editId ? 'Save changes' : 'Save search'}
             </Button>
           </div>
         </form>
