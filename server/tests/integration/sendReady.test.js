@@ -34,9 +34,11 @@ describe('approved-draft send loop', () => {
     });
   });
 
-  async function seed(approvalStatus) {
+  let n = 0;
+  async function seed(approvalStatus, email) {
+    n += 1;
     const org = await Organization.create({ workspaceId: ws._id, name: 'Acme Plumbing' });
-    const contact = await Contact.create({ workspaceId: ws._id, organizationId: org._id, email: 'Owner@Acme.com' });
+    const contact = await Contact.create({ workspaceId: ws._id, organizationId: org._id, email: email || `Owner${n}@Acme.com` });
     const lead = await Lead.create({ workspaceId: ws._id, organizationId: org._id, primaryContactId: contact._id });
     const campaign = await Campaign.create({
       workspaceId: ws._id,
@@ -73,7 +75,7 @@ describe('approved-draft send loop', () => {
   });
 
   it('claim returns the approved subject/body and a signed unsubscribe link', async () => {
-    const enr = await seed('approved');
+    const enr = await seed('approved', 'Owner@Acme.com');
     const claim = await claimSend({ workspaceId: ws._id, enrollmentId: enr._id, stepOrder: 1 });
     expect(claim.claimed).toBe(true);
     expect(claim.subject).toBe('Online booking for Acme');
@@ -91,7 +93,7 @@ describe('approved-draft send loop', () => {
   });
 
   it('matches a reply to its enrollment by Gmail thread, then by sender', async () => {
-    const enr = await seed('approved');
+    const enr = await seed('approved', 'Owner@Acme.com');
     const claim = await claimSend({ workspaceId: ws._id, enrollmentId: enr._id, stepOrder: 1 });
     await recordSendResult({ workspaceId: ws._id, messageId: claim.messageId, ok: true, providerMessageId: 'm1', threadId: 't-123' });
     expect(await resolveReplyEnrollment({ workspaceId: ws._id, threadId: 't-123' })).toBe(String(enr._id));

@@ -44,6 +44,8 @@ jobs:
             OLD=$(git rev-parse HEAD)
             git pull --ff-only
             npm install --no-audit --no-fund
+            # Keep MongoDB indexes in line with the models (drops stale ones).
+            (cd server && node --env-file=.env scripts/sync-indexes.mjs) || echo "index sync failed (non-fatal)"
             VITE_API_URL=https://api.klyro.codes/api/v1 npm run build
             pm2 reload infra/ecosystem.config.cjs --update-env
             sleep 4
