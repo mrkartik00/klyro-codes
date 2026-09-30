@@ -9,7 +9,6 @@ import { writeAudit } from './audit.service.js';
 import { suppress } from './suppression.service.js';
 import { transition } from './transition.service.js';
 import { recordEvent } from './analytics.service.js';
-import { canTransition } from '../utils/stateMachine.js';
 
 // How each reply class affects the pipeline.
 const POSITIVE = new Set(['interested', 'question']);

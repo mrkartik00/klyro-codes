@@ -16,7 +16,7 @@ const PW = `E2e-${crypto.randomBytes(6).toString('hex')}!`;
 
 await mongoose.connect(process.env.MONGODB_URI);
 const { sign } = await import('../src/utils/hmac.js');
-const { hashPassword, setupTotp, confirmTotp } = await import('../src/services/auth.service.js');
+const { hashPassword } = await import('../src/services/auth.service.js');
 const { makeToken } = await import('../src/utils/publicToken.js');
 const M = {
   Workspace: (await import('../src/models/Workspace.js')).Workspace,
