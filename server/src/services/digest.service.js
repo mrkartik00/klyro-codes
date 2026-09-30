@@ -2,6 +2,9 @@
 import mongoose from 'mongoose';
 import { env } from '../config/env.js';
 import { Lead } from '../models/Lead.js';
+// Registered for populate() below (the digest may run in a bare worker process).
+import '../models/Organization.js';
+import '../models/Contact.js';
 import { Approval } from '../models/Approval.js';
 import { ScrapeJob } from '../models/ScrapeTarget.js';
 import { WebsiteAudit } from '../models/WebsiteAudit.js';
