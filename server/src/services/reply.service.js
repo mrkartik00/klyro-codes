@@ -162,3 +162,28 @@ export async function unsubscribeContact({ workspaceId, email }) {
     return { unsubscribed: true, contacts: contactIds.length };
   });
 }
+
+/**
+ * Find which enrollment an inbound email belongs to. Gmail gives us the thread
+ * id (set on our outbound message when it was sent); fall back to the sender's
+ * most recent enrollment. Returns null for unrelated mail.
+ */
+export async function resolveReplyEnrollment({ workspaceId, threadId, contactEmail }) {
+  if (threadId) {
+    const msg = await Message.findOne({ workspaceId, threadId, direction: 'outbound' }).sort({ _id: -1 }).lean();
+    if (msg?.enrollmentId) return String(msg.enrollmentId);
+    const enr = await Enrollment.findOne({ workspaceId, threadId }).lean();
+    if (enr) return String(enr._id);
+  }
+  if (contactEmail) {
+    const contact = await Contact.findOne({ workspaceId, email: String(contactEmail).toLowerCase() }).lean();
+    if (contact) {
+      // Any status: a reply after the last step (completed) still counts.
+      const enr = await Enrollment.findOne({ workspaceId, contactId: contact._id })
+        .sort({ _id: -1 })
+        .lean();
+      if (enr) return String(enr._id);
+    }
+  }
+  return null;
+}

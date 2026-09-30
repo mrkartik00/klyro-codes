@@ -7,8 +7,8 @@ import { idempotency } from '../middleware/idempotency.js';
 import { validateBody } from '../middleware/validate.js';
 import { ingestBatch } from '../services/lead.service.js';
 import { applyEnrichment } from '../services/enrichment.service.js';
-import { claimSend, recordSendResult } from '../services/send.service.js';
-import { handleReply } from '../services/reply.service.js';
+import { claimSend, readySends, recordSendResult } from '../services/send.service.js';
+import { handleReply, resolveReplyEnrollment } from '../services/reply.service.js';
 import { classifyReply } from '../services/drafting.service.js';
 import { dueSteps, draftStep, handleBounce } from '../services/pipeline.service.js';
 import { updateScrapeProgress } from '../services/scrape.service.js';
@@ -49,6 +49,16 @@ internalRouter.post(
     }),
   ),
   asyncHandler(async (req, res) => ok(res, await applyEnrichment(req.body))),
+);
+
+// Approved, due steps for n8n's send loop.
+internalRouter.get(
+  '/sends/ready',
+  asyncHandler(async (req, res) => {
+    const workspaceId = req.query.workspaceId;
+    if (!workspaceId) return ok(res, []);
+    return ok(res, await readySends({ workspaceId, limit: Math.min(Number(req.query.limit) || 20, 100) }));
+  }),
 );
 
 internalRouter.post(
@@ -149,7 +159,8 @@ internalRouter.post(
   validateBody(
     z.object({
       workspaceId: wsId,
-      enrollmentId: z.string(),
+      // Optional: Gmail only knows the thread, so resolve it here when absent.
+      enrollmentId: z.string().optional(),
       contactEmail: z.string().optional(),
       replyText: z.string().optional(),
       replyClass: z.string().optional(),
@@ -165,7 +176,10 @@ internalRouter.post(
     if (!replyClass && req.body.replyText) {
       replyClass = (await classifyReply({ replyText: req.body.replyText })).class;
     }
-    const result = await handleReply({ ...req.body, replyClass: replyClass ?? 'needs_review' });
+    const enrollmentId = req.body.enrollmentId || (await resolveReplyEnrollment(req.body));
+    // Not a reply to one of our sends (newsletter, unrelated mail): ignore quietly.
+    if (!enrollmentId) return ok(res, { matched: false });
+    const result = await handleReply({ ...req.body, enrollmentId, replyClass: replyClass ?? 'needs_review' });
     return ok(res, result);
   }),
 );

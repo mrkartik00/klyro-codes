@@ -11,6 +11,38 @@ import { isSuppressed } from './suppression.service.js';
 import { isWithinSendWindow, addBusinessDays } from '../utils/timezone.js';
 import { recordEvent } from './analytics.service.js';
 import { ApiError } from '../utils/ApiError.js';
+import { Approval } from '../models/Approval.js';
+import { makeToken } from '../utils/publicToken.js';
+import { env } from '../config/env.js';
+
+/** Signed one-click unsubscribe URL for a recipient (RFC 8058 compatible). */
+export function unsubscribeUrl(workspaceId, email) {
+  const base = (env.PUBLIC_API_URL || 'https://api.klyro.codes/api/v1').replace(/\/$/, '');
+  return `${base}/public/u/${makeToken({ k: 'u', w: String(workspaceId), e: String(email).toLowerCase() })}`;
+}
+
+/**
+ * Steps ready to send: an approved draft exists, the enrollment is still
+ * active on that step and due, and nothing has been sent for it yet.
+ */
+export async function readySends({ workspaceId, limit = 20 }) {
+  const approvals = await Approval.find({ workspaceId, status: 'approved', channel: 'email' })
+    .sort({ decidedAt: 1 })
+    .limit(limit * 5)
+    .lean();
+  const now = new Date();
+  const out = [];
+  for (const a of approvals) {
+    if (out.length >= limit) break;
+    const enr = await Enrollment.findOne({ workspaceId, _id: a.enrollmentId }).lean();
+    if (!enr || enr.status !== 'active' || enr.currentStep !== a.stepOrder) continue;
+    if (enr.nextDueAt && enr.nextDueAt > now) continue;
+    const sent = await Message.exists({ workspaceId, enrollmentId: a.enrollmentId, stepOrder: a.stepOrder, direction: 'outbound' });
+    if (sent) continue;
+    out.push({ enrollmentId: String(a.enrollmentId), stepOrder: a.stepOrder });
+  }
+  return out;
+}
 
 const INCORPORATED = new Set(['ltd', 'llp', 'plc']);
 
@@ -41,6 +73,12 @@ export async function claimSend({ workspaceId, enrollmentId, stepOrder }) {
       direction: 'outbound',
     }).session(session);
     if (existing) return { claimed: true, messageId: existing._id, idempotent: true };
+
+    // Human-in-the-loop: a draft that exists must be approved before it can go out.
+    const approval = await Approval.findOne({ workspaceId, enrollmentId, stepOrder }).session(session);
+    if (approval && approval.status !== 'approved') {
+      return { claimed: false, reason: `draft_${approval.status}` };
+    }
 
     const contact = await Contact.findOne({ workspaceId, _id: enrollment.contactId }).session(session);
     if (!contact?.email) return { claimed: false, reason: 'no_email' };
@@ -102,6 +140,9 @@ export async function claimSend({ workspaceId, enrollmentId, stepOrder }) {
       headerToken,
       to: contact.email,
       threadId: enrollment.threadId,
+      subject: approval?.draft?.subject ?? null,
+      body: approval?.draft?.body ?? null,
+      unsubscribeUrl: unsubscribeUrl(workspaceId, contact.email),
     };
   });
 }

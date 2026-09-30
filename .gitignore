@@ -13,3 +13,6 @@ coverage/
 
 # Vendored agent skills under .kiro/steering (keep only klyro-ui.md)
 .kiro/steering/*/
+
+# Local copies of VPS-only secrets (never commit)
+.secrets/

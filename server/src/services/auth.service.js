@@ -106,7 +106,7 @@ export async function verifyEmail({ email, code }) {
 
 export async function login({ email, password, totp, userAgent, ip }) {
   const user = await User.findOne({ email }).select(
-    '+passwordHash +failedLogins +lockedUntil +totpSecret',
+    '+passwordHash +failedLogins +lockedUntil +totpSecret +totpEnabledAt',
   );
   if (!user) throw ApiError.unauthorized('Invalid credentials');
   if (user.lockedUntil && user.lockedUntil > new Date()) {
@@ -124,9 +124,10 @@ export async function login({ email, password, totp, userAgent, ip }) {
   const membership = await Membership.findOne({ userId: user._id, status: 'active' });
   if (!membership) throw ApiError.forbidden('No active membership');
 
-  // Admins must present a valid TOTP once enabled.
+  // Admins must present a valid TOTP once 2FA is *confirmed*. A secret from an
+  // unfinished setup (totpEnabledAt null) must not lock the account.
   const isAdmin = ['super_admin', 'admin'].includes(membership.role);
-  if (isAdmin && user.totpSecret) {
+  if (isAdmin && user.totpSecret && user.totpEnabledAt) {
     if (!totp) throw ApiError.unauthorized('2FA required', { code: 'TOTP_REQUIRED' });
     const valid = authenticator.verify({ token: totp, secret: decrypt(user.totpSecret) });
     if (!valid) throw ApiError.unauthorized('Invalid 2FA code');
