@@ -327,7 +327,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "// One item per ingested lead, from the API's response (leadId + domain).\nconst p = $('Verify & plan').first().json;\nconst out = [];\nfor (const res of $input.all()) {\n  for (const l of res.json?.data?.leads || []) {\n    if (!l.leadId) continue;\n    out.push({ json: { workspaceId: p.workspaceId, leadId: String(l.leadId),\n      website: l.domain ? `https://${l.domain}` : null, country: p.country } });\n  }\n}\nreturn out;"
+        "jsCode": "// One item per ingested lead, from the API's response (leadId + domain).\nconst p = $('Verify & plan').first().json;\nconst out = [];\nfor (const res of $input.all()) {\n  for (const l of res.json?.data?.leads || []) {\n    if (!l.leadId) continue;\n    out.push({ json: { workspaceId: p.workspaceId, leadId: String(l.leadId), runId: p.scrapeJobId,\n      website: l.domain ? `https://${l.domain}` : null, country: p.country } });\n  }\n}\nreturn out;"
       }
     },
     {
