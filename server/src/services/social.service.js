@@ -129,15 +129,20 @@ export function looksLikeBuyer(post, { maxAgeDays = 14 } = {}) {
   return !(Number.isFinite(age) && age > maxAgeDays);
 }
 
-/** Heuristic intent score used when Gemini is unavailable. */
+/**
+ * Heuristic intent score used only when Gemini is unavailable. Deliberately
+ * strict: a clear request (need/looking for/hire/recommend) AND something we
+ * build (website/app/store/booking). Anything else scores low and is dropped.
+ */
 export function heuristicIntent(post) {
   const t = `${post.title} ${post.text}`.toLowerCase();
-  let s = 0.3;
-  if (/\b(need|looking for|hire|hiring|recommend)\b/.test(t)) s += 0.25;
-  if (/\b(website|web site|app|landing page|online store|booking)\b/.test(t)) s += 0.2;
-  if (/\b(budget|cost|quote|how much|\$\d)/.test(t)) s += 0.15;
-  if (/\?/.test(post.title)) s += 0.05;
-  return Math.min(0.95, s);
+  const asks = /\b(i need|we need|need (a|an|someone|help)|looking for (a|an|someone)|want to hire|hiring|can anyone recommend|recommend (a|an|someone)|who can (build|make|do))\b/.test(t);
+  const product = /\b(website|web site|web app|mobile app|landing page|online store|e-?commerce|booking (system|site|page)|shopify store|wordpress site)\b/.test(t);
+  if (!asks || !product) return 0.2;
+  let s = 0.6;
+  if (/\b(budget|quote|how much|cost|price|\$\s?\d)/.test(t)) s += 0.15;
+  if (/\b(my (business|shop|store|restaurant|clinic|salon|bakery|company))\b/.test(t)) s += 0.1;
+  return Math.min(0.9, s);
 }
 
 function intentPrompt(post) {

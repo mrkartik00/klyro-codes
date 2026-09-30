@@ -45,10 +45,11 @@ describe('looksLikeBuyer', () => {
 });
 
 describe('heuristicIntent', () => {
-  it('scores explicit, budgeted requests higher', () => {
-    const strong = heuristicIntent({ title: 'Need a website, budget $2k?', text: 'looking for a developer' });
-    const weak = heuristicIntent({ title: 'thoughts on web design trends', text: '' });
-    expect(strong).toBeGreaterThan(weak);
-    expect(strong).toBeLessThanOrEqual(0.95);
+  it('scores explicit, budgeted requests high and everything else low', () => {
+    expect(heuristicIntent({ title: 'I need a website for my bakery, budget $1500', text: '' })).toBeGreaterThanOrEqual(0.7);
+    expect(heuristicIntent({ title: 'Can anyone recommend someone to build a booking site for my salon?', text: '' })).toBeGreaterThanOrEqual(0.6);
+    // Mentions "website" but isn't asking to buy one.
+    expect(heuristicIntent({ title: 'How do i get people to use my website?', text: '' })).toBeLessThan(0.55);
+    expect(heuristicIntent({ title: 'thoughts on web design trends', text: '' })).toBeLessThan(0.55);
   });
 });
