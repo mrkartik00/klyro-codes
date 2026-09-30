@@ -31,5 +31,7 @@ const scrapeScheduleSchema = new mongoose.Schema({
   heartbeatAt: { type: Date }, // set while its searches are running
 });
 scrapeScheduleSchema.plugin(basePlugin, { softDelete: true });
+// The minute tick: enabled schedules that are due.
+scrapeScheduleSchema.index({ enabled: 1, nextRunAt: 1 });
 
 export const ScrapeSchedule = mongoose.model('ScrapeSchedule', scrapeScheduleSchema);

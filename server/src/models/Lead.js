@@ -31,6 +31,8 @@ const leadSchema = new mongoose.Schema({
 leadSchema.plugin(basePlugin, { softDelete: true });
 leadSchema.index({ workspaceId: 1, organizationId: 1 }, { unique: true });
 leadSchema.index({ workspaceId: 1, score: -1, stage: 1 });
+// "New leads" (Leads → Added, morning digest): by source and recency.
+leadSchema.index({ workspaceId: 1, source: 1, createdAt: -1 });
 // One lead per social post (re-scans never duplicate).
 leadSchema.index(
   { workspaceId: 1, 'intent.externalId': 1 },

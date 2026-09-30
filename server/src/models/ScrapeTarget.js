@@ -28,6 +28,8 @@ const scrapeTargetSchema = new mongoose.Schema({
   active: { type: Boolean, default: true },
 });
 scrapeTargetSchema.plugin(basePlugin, { softDelete: true });
+// Schedules pick the searches that ran longest ago in a source/category.
+scrapeTargetSchema.index({ workspaceId: 1, source: 1, group: 1, active: 1, lastRunAt: 1 });
 
 const scrapeJobSchema = new mongoose.Schema({
   scrapeTargetId: { type: mongoose.Schema.Types.ObjectId, ref: 'ScrapeTarget', index: true },
@@ -50,6 +52,9 @@ const scrapeJobSchema = new mongoose.Schema({
   finishedAt: { type: Date },
 });
 scrapeJobSchema.plugin(basePlugin);
+// Run lists (newest first, by search / status) and the stale-run sweep.
+scrapeJobSchema.index({ workspaceId: 1, scrapeTargetId: 1, createdAt: -1 });
+scrapeJobSchema.index({ workspaceId: 1, status: 1, updatedAt: 1 });
 
 export const ScrapeTarget = mongoose.model('ScrapeTarget', scrapeTargetSchema);
 export const ScrapeJob = mongoose.model('ScrapeJob', scrapeJobSchema);

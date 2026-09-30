@@ -274,7 +274,7 @@ const REPLY_FALLBACK =
   "Happy to help. Before choosing anyone, write down the 3-4 things it must do (bookings, payments, logins), your budget range and timeline, and ask each developer for a similar project they've shipped. That makes quotes easy to compare. We build websites and mobile apps like this at Klyro if you'd like a quote.";
 
 export async function qualify(post) {
-  const ai = await generateJson(intentPrompt(post)).catch(() => null);
+  const ai = await generateJson(intentPrompt(post), { background: true }).catch(() => null);
   if (ai && typeof ai.role === 'string') {
     const buyer = ai.role === 'buyer';
     const need = [ai.need || post.title, ai.budget ? `budget ${ai.budget}` : ''].filter(Boolean).join(' · ');

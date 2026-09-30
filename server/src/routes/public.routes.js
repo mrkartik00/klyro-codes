@@ -91,10 +91,10 @@ publicRouter.post(
     if (!ws) return ok(res, { received: true });
     const { name, email, company, message, projectType, budget } = req.body;
 
-    // Never keep a visitor waiting on the AI: 6s budget, then a safe default.
+    // Never keep a visitor waiting on the AI: 4s budget, then a safe default.
     const qualified = await Promise.race([
       qualifyEnquiry({ message, budget, projectType }).catch(() => null),
-      new Promise((r) => setTimeout(() => r(null), 6000)),
+      new Promise((r) => setTimeout(() => r(null), 4000)),
     ]).then((q) => q ?? { tier: 'warm', summary: String(message).slice(0, 140), reasoning: 'timeout' });
 
     const result = await withTransaction(async (session) => {

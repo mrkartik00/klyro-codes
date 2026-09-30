@@ -13,6 +13,8 @@ const enrollmentSchema = new mongoose.Schema({
   lastMessageId: { type: String, default: null },
 });
 enrollmentSchema.plugin(basePlugin);
+// Due-steps poll: active enrollments whose next step is due.
+enrollmentSchema.index({ workspaceId: 1, status: 1, nextDueAt: 1 });
 enrollmentSchema.index({ workspaceId: 1, campaignId: 1, leadId: 1 }, { unique: true });
 
 export const Enrollment = mongoose.model('Enrollment', enrollmentSchema);

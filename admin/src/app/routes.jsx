@@ -1,25 +1,26 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { AppShell } from '../components/layout/AppShell.jsx';
 import { Spinner } from '../components/ui/index.jsx';
 
 import Login from '../pages/Login.jsx';
-import Dashboard from '../pages/Dashboard.jsx';
-import Leads from '../pages/Leads.jsx';
-import Schedules from '../pages/Schedules.jsx';
-import LeadDetail from '../pages/LeadDetail.jsx';
-import Targets from '../pages/Targets.jsx';
-import Campaigns from '../pages/Campaigns.jsx';
-import CampaignDetail from '../pages/CampaignDetail.jsx';
-import Templates from '../pages/Templates.jsx';
-import Mailboxes from '../pages/Mailboxes.jsx';
-import Approvals from '../pages/Approvals.jsx';
-import Deals from '../pages/Deals.jsx';
-import Quotations from '../pages/Quotations.jsx';
-import Portfolio from '../pages/Portfolio.jsx';
-import Settings from '../pages/Settings.jsx';
-import AuditLog from '../pages/AuditLog.jsx';
-import TwoFactor from '../pages/TwoFactor.jsx';
+const Dashboard = lazy(() => import('../pages/Dashboard.jsx'));
+const Leads = lazy(() => import('../pages/Leads.jsx'));
+const Schedules = lazy(() => import('../pages/Schedules.jsx'));
+const LeadDetail = lazy(() => import('../pages/LeadDetail.jsx'));
+const Targets = lazy(() => import('../pages/Targets.jsx'));
+const Campaigns = lazy(() => import('../pages/Campaigns.jsx'));
+const CampaignDetail = lazy(() => import('../pages/CampaignDetail.jsx'));
+const Templates = lazy(() => import('../pages/Templates.jsx'));
+const Mailboxes = lazy(() => import('../pages/Mailboxes.jsx'));
+const Approvals = lazy(() => import('../pages/Approvals.jsx'));
+const Deals = lazy(() => import('../pages/Deals.jsx'));
+const Quotations = lazy(() => import('../pages/Quotations.jsx'));
+const Portfolio = lazy(() => import('../pages/Portfolio.jsx'));
+const Settings = lazy(() => import('../pages/Settings.jsx'));
+const AuditLog = lazy(() => import('../pages/AuditLog.jsx'));
+const TwoFactor = lazy(() => import('../pages/TwoFactor.jsx'));
 import NotFound from '../pages/NotFound.jsx';
 
 function Protected({ children }) {
@@ -35,6 +36,16 @@ function Protected({ children }) {
   return children;
 }
 
+// Each page is its own chunk, loaded on first visit (smaller first load).
+const PageFallback = () => (
+  <div className="flex justify-center py-16">
+    <Spinner />
+  </div>
+);
+function Page({ children }) {
+  return <Suspense fallback={<PageFallback />}>{children}</Suspense>;
+}
+
 export function AppRoutes() {
   return (
     <Routes>
@@ -46,22 +57,22 @@ export function AppRoutes() {
           </Protected>
         }
       >
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/leads" element={<Leads />} />
-        <Route path="/leads/:id" element={<LeadDetail />} />
-        <Route path="/targets" element={<Targets />} />
-        <Route path="/schedules" element={<Schedules />} />
-        <Route path="/campaigns" element={<Campaigns />} />
-        <Route path="/campaigns/:id" element={<CampaignDetail />} />
-        <Route path="/templates" element={<Templates />} />
-        <Route path="/mailboxes" element={<Mailboxes />} />
-        <Route path="/approvals" element={<Approvals />} />
-        <Route path="/deals" element={<Deals />} />
-        <Route path="/quotations" element={<Quotations />} />
-        <Route path="/portfolio" element={<Portfolio />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/audit" element={<AuditLog />} />
-        <Route path="/2fa" element={<TwoFactor />} />
+        <Route path="/" element={<Page><Dashboard /></Page>} />
+        <Route path="/leads" element={<Page><Leads /></Page>} />
+        <Route path="/leads/:id" element={<Page><LeadDetail /></Page>} />
+        <Route path="/targets" element={<Page><Targets /></Page>} />
+        <Route path="/schedules" element={<Page><Schedules /></Page>} />
+        <Route path="/campaigns" element={<Page><Campaigns /></Page>} />
+        <Route path="/campaigns/:id" element={<Page><CampaignDetail /></Page>} />
+        <Route path="/templates" element={<Page><Templates /></Page>} />
+        <Route path="/mailboxes" element={<Page><Mailboxes /></Page>} />
+        <Route path="/approvals" element={<Page><Approvals /></Page>} />
+        <Route path="/deals" element={<Page><Deals /></Page>} />
+        <Route path="/quotations" element={<Page><Quotations /></Page>} />
+        <Route path="/portfolio" element={<Page><Portfolio /></Page>} />
+        <Route path="/settings" element={<Page><Settings /></Page>} />
+        <Route path="/audit" element={<Page><AuditLog /></Page>} />
+        <Route path="/2fa" element={<Page><TwoFactor /></Page>} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>

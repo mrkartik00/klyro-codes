@@ -21,7 +21,9 @@ async function main() {
   const shutdown = async (signal) => {
     logger.info(`${signal} received, shutting down`);
     server.close(async () => {
-      await Promise.allSettled([stopQueues(), disconnectDb(), closeRedis()]);
+      // Workers first (they still write to Redis/Mongo), then the connections.
+      await stopQueues().catch(() => {});
+      await Promise.allSettled([disconnectDb(), closeRedis()]);
       process.exit(0);
     });
     setTimeout(() => process.exit(1), 10000).unref();

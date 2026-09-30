@@ -28,12 +28,17 @@ async function pace() {
   if (wait > 0) await sleep(wait);
 }
 
-export async function generateJson(prompt, { model = MODEL } = {}) {
+/**
+ * `background: true` (bulk jobs like Reddit scans) is paced and may wait out
+ * per-minute limits; interactive calls (drafts, reply classification, forms)
+ * skip the queue and never sleep on a 429 — they fall back instead.
+ */
+export async function generateJson(prompt, { model = MODEL, background = false } = {}) {
   const models = [...new Set([model, FALLBACK_MODEL])];
   for (const m of models) {
     if ((coolUntil.get(m) || 0) > Date.now()) continue;
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      await pace();
+      if (background) await pace();
       const r = await generateJsonWith(prompt, m);
       if (r.ok) return r.value;
       if (r.status === 429) {
@@ -43,6 +48,7 @@ export async function generateJson(prompt, { model = MODEL } = {}) {
           coolUntil.set(m, Date.now() + 30 * 60 * 1000);
           break;
         }
+        if (!background) return null;
         await sleep(15000 * (attempt + 1));
         continue;
       }

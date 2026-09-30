@@ -16,5 +16,8 @@ const approvalSchema = new mongoose.Schema({
   decidedAt: { type: Date },
 });
 approvalSchema.plugin(basePlugin);
+// Approvals queue (pending, newest first) and per-lead lookups.
+approvalSchema.index({ workspaceId: 1, status: 1, createdAt: -1 });
+approvalSchema.index({ workspaceId: 1, leadId: 1, status: 1 });
 
 export const Approval = mongoose.model('Approval', approvalSchema);
