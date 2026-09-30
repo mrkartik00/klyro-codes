@@ -254,7 +254,9 @@ export async function fetchBluesky({ keywords, sinceDays }) {
   const since = Date.now() - sinceDays * 864e5;
   const out = new Map();
   for (const k of keywords.length ? keywords : DEFAULT_SOCIAL_PHRASES) {
-    const qs = new URLSearchParams({ q: `"${k}"`, sort: 'latest', limit: '100' });
+    // Unquoted: exact phrases find almost nothing on Bluesky; the keyword
+    // pre-filter removes the noise before any AI check.
+    const qs = new URLSearchParams({ q: k.replace(/"/g, ''), sort: 'latest', limit: '100' });
     const d = await getJson(`${pds}/xrpc/app.bsky.feed.searchPosts?${qs}`, { headers: { authorization: `Bearer ${jwt}` } }).catch((e) => (logger.warn({ err: e }, 'bluesky search'), null));
     for (const p of d?.posts || []) {
       const rkey = p.uri.split('/').pop();
