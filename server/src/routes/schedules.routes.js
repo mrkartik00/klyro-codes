@@ -10,6 +10,7 @@ import { writeAudit } from '../services/audit.service.js';
 import { ScrapeSchedule } from '../models/ScrapeSchedule.js';
 import { ScrapeJob } from '../models/ScrapeTarget.js';
 import { validateFrequency, nextRunTime, previewRuns, resolveTargets, fireSchedule } from '../services/schedule.service.js';
+import { buildDigest, sendDigest } from '../services/digest.service.js';
 
 export const schedulesRouter = Router();
 
@@ -71,6 +72,16 @@ schedulesRouter.get(
     const docs = await ScrapeSchedule.find({ workspaceId: req.workspaceId, deletedAt: null }).sort({ enabled: -1, nextRunAt: 1 }).lean();
     return ok(res, await withStats(req.workspaceId, docs));
   }),
+);
+
+// Morning digest (Telegram, 07:30 IST daily): preview or send now.
+schedulesRouter.get(
+  '/digest',
+  asyncHandler(async (req, res) => ok(res, { text: await buildDigest({ workspaceId: req.workspaceId, hours: Number(req.query.hours) || 24 }) })),
+);
+schedulesRouter.post(
+  '/digest/send',
+  asyncHandler(async (req, res) => ok(res, await sendDigest({ workspaceId: req.workspaceId, hours: Number(req.body?.hours) || 24 }))),
 );
 
 // Preview: next run times + which searches would run, for an unsaved form.

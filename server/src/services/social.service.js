@@ -21,6 +21,7 @@ import { LeadSource } from '../models/LeadSource.js';
 import { Approval } from '../models/Approval.js';
 import { ScrapeTarget, ScrapeJob } from '../models/ScrapeTarget.js';
 import { emitToWorkspace } from '../socket/index.js';
+import { SocialSeen } from '../models/SocialSeen.js';
 
 const UA = 'klyro-lead-finder/1.0 (+https://klyro.codes; admin@klyro.codes)';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -421,7 +422,8 @@ export async function runRedditTarget({ workspaceId, target, job }) {
   // Without an API key Reddit allows only a few requests a minute, so each run
   // covers the next 3 subreddits (round-robin); with a key, all of them.
   const all = communities.length ? communities : DEFAULT_COMMUNITIES;
-  const perRun = env.REDDIT_CLIENT_ID ? all.length : Math.min(3, all.length);
+  // Arctic Shift has no tight rate limit, so every run covers all subreddits.
+  const perRun = all.length;
   const start = (target.filters?.cursor ?? 0) % all.length;
   const batch = Array.from({ length: perRun }, (_, i) => all[(start + i) % all.length]);
   try {
@@ -464,7 +466,7 @@ export async function runRedditTarget({ workspaceId, target, job }) {
             stats.filtered += 1;
             continue;
           }
-          if (await Lead.exists({ workspaceId, 'intent.externalId': post.id })) {
+          if ((await Lead.exists({ workspaceId, 'intent.externalId': post.id })) || (await SocialSeen.exists({ workspaceId, externalId: post.id }))) {
             stats.duplicates += 1;
             continue;
           }
@@ -476,12 +478,16 @@ export async function runRedditTarget({ workspaceId, target, job }) {
             seen.delete(post.id);
             continue;
           }
+          const remember = () =>
+            SocialSeen.updateOne({ workspaceId, externalId: post.id }, { $setOnInsert: { workspaceId, externalId: post.id, role: q.role, intent: q.intent } }, { upsert: true }).catch(() => {});
           if (q.role !== 'buyer') {
+            await remember();
             stats.notBuyer += 1;
             note(`skipped (${q.role}): ${post.title.slice(0, 90)}`);
             continue;
           }
           if (q.intent < minIntent) {
+            await remember();
             stats.lowIntent += 1;
             note(`skipped (intent ${Math.round(q.intent * 100)}%): ${post.title.slice(0, 90)}`);
             continue;

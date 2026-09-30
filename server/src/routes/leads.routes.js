@@ -30,6 +30,8 @@ leadsRouter.get(
     if (source) filter.source = source;
     if (tag) filter.tags = tag;
     if (minScore) filter.score = { $gte: Number(minScore) };
+    // Only leads added in the last N hours (e.g. since=24 for "new overnight").
+    if (Number(req.query.since) > 0) filter.createdAt = { $gte: new Date(Date.now() - Number(req.query.since) * 3600 * 1000) };
     // Free-text search on the business name (case-insensitive, regex-escaped).
     if (req.query.q && String(req.query.q).trim()) {
       const rx = new RegExp(escapeRegex(String(req.query.q).trim().slice(0, 80)), 'i');

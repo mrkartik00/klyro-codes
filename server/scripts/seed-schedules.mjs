@@ -16,25 +16,40 @@ if (!ws) throw new Error('No workspace yet — register the first admin first.')
 const admin = await User.findOne({ role: { $in: ['super_admin', 'admin'] } }).sort({ createdAt: 1 });
 
 const TZ = 'Asia/Kolkata';
+// Overnight plan (India time) so the 07:30 digest has the best fresh leads:
+// Reddit all day (fast via Arctic Shift; judged posts are cached so repeat
+// scans are cheap), every Maps category nightly between 00:30 and 04:30.
+const MAPS_CAP = 40; // leads per Maps search — keeps overnight enrichment finishing by morning
 const SCHEDULES = [
-  // Reddit: fresh [Hiring] posts go fast, so check the boards hourly.
-  { name: 'Reddit — hiring boards (hourly)', source: 'reddit', groups: ['Hiring boards'], perRun: 1, frequency: { type: 'interval', everyMinutes: 60 } },
+  { name: 'Reddit — hiring boards (every 30 min)', source: 'reddit', groups: ['Hiring boards'], perRun: 0, frequency: { type: 'interval', everyMinutes: 30 } },
   {
-    name: 'Reddit — buyer searches (rotating, every 30 min)',
+    name: 'Reddit — buyer searches (every 2 hours)',
     source: 'reddit',
     groups: ['Founders & startups', 'Small businesses', 'E-commerce', 'Industries', 'General'],
-    perRun: 1,
-    frequency: { type: 'interval', everyMinutes: 30 },
+    perRun: 0,
+    frequency: { type: 'interval', everyMinutes: 120 },
   },
-  // Google Maps: nightly batches, rotating through each category.
-  { name: 'Maps — home services (nightly)', source: 'maps', groups: ['Home services'], perRun: 2, frequency: { type: 'daily', times: ['01:00'] } },
-  { name: 'Maps — health & wellness (nightly)', source: 'maps', groups: ['Health & wellness'], perRun: 1, frequency: { type: 'daily', times: ['02:30'] } },
-  { name: 'Maps — fitness, beauty & food (Mon/Wed/Fri)', source: 'maps', groups: ['Fitness & beauty', 'Food & retail'], perRun: 1, frequency: { type: 'weekly', days: [1, 3, 5], times: ['03:30'] } },
-  { name: 'Maps — professional services (Tue/Thu)', source: 'maps', groups: ['Professional services'], perRun: 1, frequency: { type: 'weekly', days: [2, 4], times: ['03:30'] } },
-  { name: 'Maps — auto & education (Sat)', source: 'maps', groups: ['Auto & education'], perRun: 1, frequency: { type: 'weekly', days: [6], times: ['03:30'] } },
-  { name: 'Maps — United Kingdom (Tue/Fri)', source: 'maps', groups: ['United Kingdom'], perRun: 1, frequency: { type: 'weekly', days: [2, 5], times: ['04:30'] } },
-  { name: 'Maps — my own searches (Sun)', source: 'maps', groups: ['My searches'], perRun: 0, frequency: { type: 'weekly', days: [0], times: ['04:30'] } },
+  { name: 'Maps — home services (nightly 00:30)', source: 'maps', groups: ['Home services'], perRun: 3, maxResults: MAPS_CAP, frequency: { type: 'daily', times: ['00:30'] } },
+  { name: 'Maps — health & wellness (nightly 01:30)', source: 'maps', groups: ['Health & wellness'], perRun: 2, maxResults: MAPS_CAP, frequency: { type: 'daily', times: ['01:30'] } },
+  { name: 'Maps — professional services (nightly 02:15)', source: 'maps', groups: ['Professional services'], perRun: 1, maxResults: MAPS_CAP, frequency: { type: 'daily', times: ['02:15'] } },
+  { name: 'Maps — fitness, beauty & food (nightly 02:45)', source: 'maps', groups: ['Fitness & beauty', 'Food & retail'], perRun: 2, maxResults: MAPS_CAP, frequency: { type: 'daily', times: ['02:45'] } },
+  { name: 'Maps — auto & education (nightly 03:30)', source: 'maps', groups: ['Auto & education'], perRun: 1, maxResults: MAPS_CAP, frequency: { type: 'daily', times: ['03:30'] } },
+  { name: 'Maps — United Kingdom (nightly 04:00)', source: 'maps', groups: ['United Kingdom'], perRun: 1, maxResults: MAPS_CAP, frequency: { type: 'daily', times: ['04:00'] } },
+  { name: 'Maps — my own searches (Sun 04:30)', source: 'maps', groups: ['My searches'], perRun: 0, frequency: { type: 'weekly', days: [0], times: ['04:30'] } },
 ];
+// Earlier versions of this plan (replaced above).
+const RETIRED = [
+  'Reddit — hiring boards (hourly)',
+  'Reddit — buyer searches (rotating, every 30 min)',
+  'Maps — home services (nightly)',
+  'Maps — health & wellness (nightly)',
+  'Maps — fitness, beauty & food (Mon/Wed/Fri)',
+  'Maps — professional services (Tue/Thu)',
+  'Maps — auto & education (Sat)',
+  'Maps — United Kingdom (Tue/Fri)',
+  'Maps — my own searches (Sun)',
+];
+await ScrapeSchedule.updateMany({ workspaceId: ws._id, name: { $in: RETIRED }, deletedAt: null }, { $set: { deletedAt: new Date(), enabled: false } });
 
 let created = 0;
 let updated = 0;

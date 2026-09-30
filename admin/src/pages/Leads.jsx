@@ -55,6 +55,7 @@ export default function Leads() {
   const [stage, setStage] = useState('');
   const [platform, setPlatform] = useState('');
   const [minScore, setMinScore] = useState('');
+  const [since, setSince] = useState(() => new URLSearchParams(window.location.search).get('since') || '');
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
@@ -63,15 +64,16 @@ export default function Leads() {
   const [selected, setSelected] = useState(() => new Set());
   const [bulkStage, setBulkStage] = useState('');
 
-  useEffect(() => setPage(1), [stage, platform, minScore, search]);
+  useEffect(() => setPage(1), [stage, platform, minScore, search, since]);
 
   const { data, isLoading, isError, isFetching } = useQuery({
-    queryKey: ['leads', stage, platform, minScore, search, page],
+    queryKey: ['leads', stage, platform, minScore, search, page, since],
     queryFn: async () => {
       const params = { page, limit: PAGE };
       if (stage) params.stage = stage;
       if (platform) params.source = platform;
       if (minScore) params.minScore = minScore;
+      if (since) params.since = since;
       if (search.trim()) params.q = search.trim();
       const res = await api.get('/admin/leads', { params });
       return res.data; // keep meta for paging
@@ -158,6 +160,15 @@ export default function Leads() {
                   {v}
                 </option>
               ))}
+          </Select>
+        </div>
+        <div className="sm:w-44">
+          <Select aria-label="Added" value={since} onChange={(e) => setSince(e.target.value)}>
+            <option value="">Added: any time</option>
+            <option value="12">Last 12 hours</option>
+            <option value="24">Last 24 hours</option>
+            <option value="72">Last 3 days</option>
+            <option value="168">Last 7 days</option>
           </Select>
         </div>
         <div className="sm:w-36">

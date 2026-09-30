@@ -1,4 +1,5 @@
 import { Queue, Worker } from 'bullmq';
+import { env } from '../config/env.js';
 import { getRedis } from '../config/redis.js';
 import { logger } from '../config/logger.js';
 import { resetDailyCounters, evaluateMailboxHealth } from '../services/mailboxHealth.service.js';
@@ -8,6 +9,7 @@ import { alertError } from '../services/alert.service.js';
 import { sendTelegram } from '../integrations/telegram/index.js';
 import { Workspace } from '../models/Workspace.js';
 import { runDueSchedules } from '../services/schedule.service.js';
+import { sendDigest } from '../services/digest.service.js';
 
 const connection = () => getRedis();
 const registry = [];
@@ -21,7 +23,8 @@ export function startQueues() {
   const rollup = new Queue('metricsRollup', opts);
   const reminders = new Queue('invoiceReminders', opts);
   const scheduler = new Queue('scrapeScheduler', opts);
-  registry.push(health, daily, rollup, reminders, scheduler);
+  const digest = new Queue('morningDigest', opts);
+  registry.push(health, daily, rollup, reminders, scheduler, digest);
 
   const mbWorker = new Worker(
     'mailboxHealth',
@@ -59,6 +62,13 @@ export function startQueues() {
 
   // Scrape schedules (admin-defined cron jobs) — checked every minute.
   const schedulerWorker = new Worker('scrapeScheduler', async () => runDueSchedules(), opts);
+  const digestWorker = new Worker(
+    'morningDigest',
+    async () => {
+      for (const ws of await Workspace.find().lean()) await sendDigest({ workspaceId: ws._id, hours: 24 });
+    },
+    opts,
+  );
 
   // Surface worker failures to Telegram instead of failing silently.
   for (const [name, w] of [
@@ -67,6 +77,7 @@ export function startQueues() {
     ['metricsRollup', rollupWorker],
     ['invoiceReminders', remindersWorker],
     ['scrapeScheduler', schedulerWorker],
+    ['morningDigest', digestWorker],
   ]) {
     w.on('failed', (_job, err) => {
       logger.error({ err, worker: name }, 'BullMQ worker failed');
@@ -81,8 +92,10 @@ export function startQueues() {
   rollup.add('hourly', {}, { repeat: { pattern: '30 * * * *' }, removeOnComplete: true });
   reminders.add('daily', {}, { repeat: { pattern: '0 9 * * *' }, removeOnComplete: true });
   scheduler.add('minute', {}, { repeat: { pattern: '* * * * *' }, removeOnComplete: true, removeOnFail: 50 });
+  // Morning digest of the best overnight leads (Telegram), 07:30 India time.
+  digest.add('daily', {}, { repeat: { pattern: env.DIGEST_CRON || '30 7 * * *', tz: env.DIGEST_TZ || 'Asia/Kolkata' }, removeOnComplete: true });
 
-  logger.info('BullMQ queues started (mailboxHealth, dailyReset, metricsRollup, invoiceReminders, scrapeScheduler)');
+  logger.info('BullMQ queues started (mailboxHealth, dailyReset, metricsRollup, invoiceReminders, scrapeScheduler, morningDigest)');
 }
 
 export async function stopQueues() {

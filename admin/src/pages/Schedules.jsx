@@ -488,9 +488,18 @@ export default function Schedules() {
         title="Schedules"
         description="Cron jobs that run your saved lead searches automatically. Checked every minute; searches run one at a time per source."
         actions={
+          <>
+          <Button
+            variant="secondary"
+            onClick={() => act.mutate({ method: 'post', url: '/digest/send', body: { hours: 24 }, done: 'Digest sent to Telegram' })}
+            title="The best leads of the last 24 h — also sent automatically every day at 07:30"
+          >
+            Send morning digest now
+          </Button>
           <Button onClick={openNew}>
             <Plus size={16} aria-hidden="true" /> New schedule
           </Button>
+          </>
         }
       />
       <Card className="overflow-hidden">

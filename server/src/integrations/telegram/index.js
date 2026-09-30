@@ -17,7 +17,7 @@ export async function sendTelegram(text, { buttons, chatId = env.TELEGRAM_CHAT_I
   const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup }),
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup, link_preview_options: { is_disabled: true } }),
   });
   if (!res.ok) logger.error({ status: res.status }, 'Telegram send failed');
   return res.json().catch(() => ({}));

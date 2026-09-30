@@ -37,6 +37,8 @@ const schema = z.object({
   REDDIT_CLIENT_ID: z.string().optional(),
   REDDIT_CLIENT_SECRET: z.string().optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
+  DIGEST_CRON: z.string().optional(), // morning digest time (default 07:30)
+  DIGEST_TZ: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
   PAGESPEED_API_KEY: z.string().optional(),
