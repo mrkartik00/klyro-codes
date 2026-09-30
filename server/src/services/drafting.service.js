@@ -10,7 +10,9 @@ export function checkDraft(draft, facts) {
   if (!draft?.subject || !draft?.body) issues.push('missing_fields');
   const body = (draft?.body ?? '').toLowerCase();
   if (body.length > 900) issues.push('too_long');
-  if (/\[[a-z ]+\]/i.test(draft?.body ?? '')) issues.push('placeholder');
+  if (/\[[a-z ]+\]/i.test(draft?.body ?? '') || /\{\{\s*\w+\s*\}\}/.test(`${draft?.subject ?? ''} ${draft?.body ?? ''}`)) {
+    issues.push('placeholder');
+  }
   if (SPAM_WORDS.some((w) => body.includes(w))) issues.push('spam_words');
   // Must reference at least one real fact (name or city) to be personalized.
   const refs = [facts.businessName, facts.city].filter(Boolean).map((s) => s.toLowerCase());
@@ -18,23 +20,77 @@ export function checkDraft(draft, facts) {
   return { ok: issues.length === 0, issues };
 }
 
+const ISSUE_TEXT = {
+  'no-ssl': 'the site is not secure (no HTTPS), so browsers warn visitors',
+  'no-viewport': "the site isn't set up for phones",
+  'slow-mobile': 'the site loads slowly on phones',
+  unreachable: "the website wasn't loading when I checked",
+  'no-website': "I couldn't find a website for you",
+  'stale-copyright': 'the site looks like it has not been updated in a while',
+  'no-meta-description': "the site isn't set up well for Google search",
+  'no-title': "the site isn't set up well for Google search",
+};
+
+/** A short, human sentence about the biggest website problem (or a neutral line). */
+export function auditHighlight(issues = []) {
+  for (const i of issues) if (ISSUE_TEXT[i]) return ISSUE_TEXT[i];
+  return 'there are a few quick wins that could bring you more enquiries';
+}
+
+/**
+ * Replace {{var}} placeholders. Personal values (first name) are filled here,
+ * server-side, after the AI step — they are never sent to the model.
+ * Unknown variables are removed rather than shown to the recipient.
+ */
+export function fillTemplate(text, vars) {
+  return String(text ?? '')
+    .replace(/\{\{\s*(\w+)\s*\}\}/g, (_m, k) => (vars[k] != null && vars[k] !== '' ? String(vars[k]) : ''))
+    .replace(/[ \t]+([,.!?])/g, '$1')
+    .replace(/[ \t]{2,}/g, ' ');
+}
+
 /** Produce a validated draft. Falls back to a template-based draft if AI fails. */
-export async function draftEmail({ business, audit, template, tone }) {
+export async function draftEmail({ business, audit, template, tone, vars: extraVars = {} }) {
+  const vars = {
+    company: business.name,
+    city: business.city,
+    category: business.category,
+    auditHighlight: auditHighlight(audit?.issues),
+    firstName: 'there',
+    ...Object.fromEntries(Object.entries(extraVars).filter(([, v]) => v != null && v !== '')),
+  };
+  const finish = (d) => {
+    const out = { ...d, subject: fillTemplate(d.subject, vars), body: fillTemplate(d.body, vars) };
+    const check = checkDraft(out, { businessName: business.name, city: business.city });
+    return check.ok ? out : { ...out, guardrailIssues: [...new Set([...(d.guardrailIssues ?? []), ...check.issues])] };
+  };
+  return finish(await draftRaw({ business, audit, template, tone, hasPitch: Boolean(vars.pitchUrl) }));
+}
+
+async function draftRaw({ business, audit, template, tone, hasPitch }) {
   const facts = {
     businessName: business.name,
     city: business.city,
     category: business.category,
   };
-  const ai = await generateJson(draftPrompt({ business, audit, template, tone }));
-  if (ai) {
-    const check = checkDraft(ai, facts);
-    if (check.ok) return { ...ai, source: 'ai' };
-    return { ...ai, source: 'ai', guardrailIssues: check.issues };
+  void facts;
+  const ai = await generateJson(draftPrompt({ business, audit, template, tone, hasPitch }));
+  if (ai?.subject && ai?.body) return { ...ai, source: 'ai' };
+  // Deterministic fallback so the pipeline never stalls without AI: use the
+  // template itself (placeholders are filled by the caller), else a safe line.
+  // Only when the template is itself personalised ({{company}} or the name).
+  const personalised = (t) => /\{\{\s*company\s*\}\}/.test(t) || (business.name && t.includes(business.name));
+  if (template?.body && personalised(template.body)) {
+    return {
+      subject: template.subject || 'Quick idea for {{company}}',
+      body: template.body,
+      personalizationNotes: 'template (AI unavailable)',
+      source: 'template',
+    };
   }
-  // Deterministic fallback so the pipeline never stalls without AI.
   return {
-    subject: `Quick idea for ${business.name}`,
-    body: `Hi, I came across ${business.name}${business.city ? ` in ${business.city}` : ''} and had a quick idea to help you win more customers online. Worth a short reply?`,
+    subject: 'Quick idea for {{company}}',
+    body: `Hi {{firstName}},\n\nI came across {{company}}${business.city ? ' in {{city}}' : ''} and noticed {{auditHighlight}}.${hasPitch ? '\n\nI made a short page showing what a new site could look like: {{pitchUrl}}' : ''}\n\nWorth a quick reply?\n\nKartik\nKlyro`,
     personalizationNotes: 'fallback',
     source: 'fallback',
   };

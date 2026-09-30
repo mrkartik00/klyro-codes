@@ -1,3 +1,5 @@
+import { env } from '../config/env.js';
+import { PitchPage } from '../models/PitchPage.js';
 import { Enrollment } from '../models/Enrollment.js';
 import { Lead } from '../models/Lead.js';
 import { Organization } from '../models/Organization.js';
@@ -77,12 +79,19 @@ export async function draftStep({ workspaceId, enrollmentId, stepOrder, tone, ac
       : null;
     const audit = lead?.auditId ? await WebsiteAudit.findOne({ workspaceId, _id: lead.auditId }).session(session) : null;
 
-    // draftEmail only receives non-personal business facts (data minimisation).
+    // Personal values are filled into {{placeholders}} after the AI step and
+    // never sent to the model (data minimisation).
+    const contact = enr.contactId ? await Contact.findOne({ workspaceId, _id: enr.contactId }).session(session) : null;
+    const pitch = await PitchPage.findOne({ workspaceId, leadId: enr.leadId, deletedAt: null }).session(session);
+    const firstName = String(contact?.name ?? '').trim().split(/\s+/)[0] || 'there';
+    const pitchUrl = pitch ? `${env.WEB_ORIGIN.replace(/\/$/, '')}/pitch/${pitch.slug}?t=${pitch.token}` : null;
+
     const draft = await draftEmail({
       business: { name: org?.name, city: org?.city, category: org?.category, country: org?.country, domain: org?.domain },
       audit: audit ? { issues: audit.issues, mobileScore: audit.mobileScore } : {},
       template: template?.variants?.[0],
       tone,
+      vars: { firstName, pitchUrl },
     });
 
     const [approval] = await Approval.create(

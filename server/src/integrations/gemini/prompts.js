@@ -1,4 +1,4 @@
-export function draftPrompt({ business, audit, template, tone = 'friendly, concise, professional' }) {
+export function draftPrompt({ business, audit, template, tone = 'friendly, concise, professional', hasPitch = false }) {
   // Only business (non-personal) facts are sent to the model.
   const facts = {
     businessName: business.name,
@@ -17,7 +17,11 @@ ${JSON.stringify(facts, null, 2)}
 Template guidance (may be empty): ${template?.body ?? ''}
 
 Return strict JSON: {"subject": string, "body": string, "personalizationNotes": string}.
-The body must reference at least one specific fact above. No placeholders like [Name].`;
+The body must reference at least one specific fact above.
+Start with "Hi {{firstName}}," exactly (it is filled in later). Sign off as "Kartik, Klyro".${
+    hasPitch ? '\nInclude the literal token {{pitchUrl}} once, where a link to a personalised preview page goes.' : ''
+  }
+Do not use any other placeholders ([Name], {{anything else}}).`;
 }
 
 export function classifyPrompt({ replyText }) {
