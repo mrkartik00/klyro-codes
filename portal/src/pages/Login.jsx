@@ -37,13 +37,19 @@ export default function Login() {
       await login({
         email: values.email,
         password: values.password,
-        totp: values.totp || undefined,
       });
       navigate(from, { replace: true });
     } catch (err) {
+      const e = err.response?.data?.error;
+      // Unverified account: send them straight to the code screen.
+      if (e?.code === 'EMAIL_NOT_VERIFIED') {
+        navigate('/verify', { state: { email: values.email } });
+        return;
+      }
       setServerError(
-        err.response?.data?.error?.message ||
-          'Unable to sign in. Check your credentials.'
+        err.response?.status === 429
+          ? 'Too many attempts. Please wait a few minutes and try again.'
+          : e?.message || 'Unable to sign in. Check your credentials.'
       );
     }
   }
@@ -84,25 +90,14 @@ export default function Login() {
           />
           <FieldError>{errors.password?.message}</FieldError>
         </div>
-        <div>
-          <Label htmlFor="totp">
-            Authenticator code{' '}
-            <span className="text-[var(--color-muted-foreground)]">
-              (optional)
-            </span>
-          </Label>
-          <Input
-            id="totp"
-            inputMode="numeric"
-            maxLength={6}
-            placeholder="123456"
-            {...register('totp')}
-          />
-          <FieldError>{errors.totp?.message}</FieldError>
-        </div>
+        <p className="text-right text-sm">
+          <Link className="inline-flex min-h-11 items-center text-[var(--color-primary)]" to="/forgot">
+            Forgot password?
+          </Link>
+        </p>
 
         {/* Honeypot — visually hidden, not for humans */}
-        <div aria-hidden="true" className="absolute left-[-9999px]">
+        <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden">
           <label htmlFor="website_url">Leave this field empty</label>
           <input
             id="website_url"

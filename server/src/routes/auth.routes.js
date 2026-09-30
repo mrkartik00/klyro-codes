@@ -27,6 +27,13 @@ authRouter.post(
 );
 
 authRouter.post(
+  '/verify/resend',
+  authLimiter,
+  validateBody(z.object({ email: emailSchema })),
+  asyncHandler(async (req, res) => ok(res, await auth.resendVerification(req.body))),
+);
+
+authRouter.post(
   '/login',
   authLimiter,
   validateBody(loginSchema),

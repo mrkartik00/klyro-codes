@@ -3,6 +3,7 @@ import { ProtectedRoute } from '../components/AppLayout.jsx';
 import Login from '../pages/Login.jsx';
 import Register from '../pages/Register.jsx';
 import VerifyEmail from '../pages/VerifyEmail.jsx';
+import { ForgotPassword, ResetPassword } from '../pages/PasswordReset.jsx';
 import Dashboard from '../pages/Dashboard.jsx';
 import Projects from '../pages/Projects.jsx';
 import Quotes from '../pages/Quotes.jsx';
@@ -17,6 +18,8 @@ export default function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/verify" element={<VerifyEmail />} />
+      <Route path="/forgot" element={<ForgotPassword />} />
+      <Route path="/reset" element={<ResetPassword />} />
 
       <Route element={<ProtectedRoute />}>
         <Route index element={<Dashboard />} />

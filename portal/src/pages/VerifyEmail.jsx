@@ -19,9 +19,11 @@ export default function VerifyEmail() {
   const { toast } = useToast();
   const [serverError, setServerError] = useState('');
 
+  const [resending, setResending] = useState(false);
   const {
     register,
     handleSubmit,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm({
     resolver: zodResolver(schema),
@@ -46,6 +48,24 @@ export default function VerifyEmail() {
         err.response?.data?.error?.message ||
           'Verification failed. Check the code and try again.'
       );
+    }
+  }
+
+  async function resend() {
+    const email = String(getValues('email') || '').trim();
+    if (!email) {
+      setServerError('Enter your email first.');
+      return;
+    }
+    setResending(true);
+    setServerError('');
+    try {
+      await api.post('/auth/verify/resend', { email });
+      toast({ title: 'New code sent', description: 'Check your inbox (and spam folder).', tone: 'success' });
+    } catch (err) {
+      setServerError(err.response?.data?.error?.message || 'Could not resend right now. Try again shortly.');
+    } finally {
+      setResending(false);
     }
   }
 
@@ -76,8 +96,9 @@ export default function VerifyEmail() {
           <Input
             id="code"
             inputMode="numeric"
+            autoComplete="one-time-code"
             maxLength={6}
-            placeholder="123456"
+            placeholder="6-digit code"
             aria-invalid={Boolean(errors.code)}
             {...register('code')}
           />
@@ -93,6 +114,14 @@ export default function VerifyEmail() {
         <Button type="submit" className="w-full" disabled={isSubmitting}>
           {isSubmitting ? 'Verifying…' : 'Verify email'}
         </Button>
+        <button
+          type="button"
+          onClick={resend}
+          disabled={resending}
+          className="min-h-11 w-full text-sm text-[var(--color-primary)] underline-offset-2 hover:underline disabled:opacity-60"
+        >
+          {resending ? 'Sending…' : "Didn't get a code? Send a new one"}
+        </button>
       </form>
     </AuthShell>
   );

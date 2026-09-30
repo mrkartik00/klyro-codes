@@ -92,6 +92,18 @@ export async function register({ name, email, password }) {
   });
 }
 
+/** Re-send the email verification code. Always resolves (no account enumeration). */
+export async function resendVerification({ email }) {
+  const user = await User.findOne({ email: String(email).toLowerCase() });
+  if (!user || user.emailVerifiedAt) return { sent: true };
+  const code = genOtp();
+  user.verifyCodeHash = sha256(code);
+  user.verifyCodeExpires = new Date(Date.now() + 15 * 60 * 1000);
+  await user.save();
+  await sendVerificationOtp(user.email, code).catch(() => {});
+  return { sent: true };
+}
+
 export async function verifyEmail({ email, code }) {
   const user = await User.findOne({ email }).select('+verifyCodeHash +verifyCodeExpires');
   if (!user) throw ApiError.notFound('User not found');
@@ -143,7 +155,7 @@ export async function login({ email, password, totp, userAgent, ip }) {
     await user.save();
     throw ApiError.unauthorized('Invalid credentials');
   }
-  if (!user.emailVerifiedAt) throw ApiError.forbidden('Email not verified');
+  if (!user.emailVerifiedAt) throw ApiError.forbidden('Please verify your email first', { code: 'EMAIL_NOT_VERIFIED' });
 
   const membership = await Membership.findOne({ userId: user._id, status: 'active' });
   if (!membership) throw ApiError.forbidden('No active membership');
@@ -213,7 +225,7 @@ export async function requestPasswordReset({ email }) {
   user.resetTokenHash = sha256(raw);
   user.resetTokenExpires = new Date(Date.now() + 60 * 60 * 1000);
   await user.save();
-  await sendPasswordReset(email, `${env.WEB_ORIGIN}/reset?token=${raw}&email=${encodeURIComponent(email)}`);
+  await sendPasswordReset(email, `${env.PORTAL_ORIGIN}/reset?token=${raw}&email=${encodeURIComponent(email)}`);
   return { requested: true };
 }
 
