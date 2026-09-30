@@ -19,14 +19,14 @@ import { classNames as cn } from '../../lib/format.js';
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/approvals', label: 'Approvals', icon: CheckSquare },
+  { to: '/targets', label: 'Lead Sources', icon: Target },
   { to: '/leads', label: 'Leads', icon: Users },
-  { to: '/targets', label: 'Targets', icon: Target },
   { to: '/campaigns', label: 'Campaigns', icon: Send },
   { to: '/templates', label: 'Templates', icon: FileText },
-  { to: '/mailboxes', label: 'Mailboxes', icon: Inbox },
-  { to: '/approvals', label: 'Approvals', icon: CheckSquare },
   { to: '/deals', label: 'Deals', icon: Kanban },
   { to: '/quotations', label: 'Quotations', icon: ReceiptText },
+  { to: '/mailboxes', label: 'Mailboxes', icon: Inbox },
   { to: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { to: '/settings', label: 'Settings', icon: Settings },
   { to: '/audit', label: 'Audit Log', icon: ScrollText },

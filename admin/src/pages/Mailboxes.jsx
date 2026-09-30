@@ -19,7 +19,7 @@ export default function Mailboxes() {
   const qc = useQueryClient();
   const toast = useToast();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ email: '', fromName: '', dailyCap: 40 });
+  const [form, setForm] = useState({ address: '', displayName: '', dailyCap: 5 });
 
   const { data, isLoading } = useQuery({
     queryKey: ['mailboxes'],
@@ -34,7 +34,7 @@ export default function Mailboxes() {
       qc.invalidateQueries({ queryKey: ['mailboxes'] });
       toast.success('Mailbox added');
       setOpen(false);
-      setForm({ email: '', fromName: '', dailyCap: 40 });
+      setForm({ address: '', displayName: '', dailyCap: 5 });
     },
     onError: (e) => toast.error(e.message || 'Create failed'),
   });
@@ -86,8 +86,8 @@ export default function Mailboxes() {
                   const id = m._id || m.id;
                   return (
                     <tr key={id} className="border-b border-border/60">
-                      <td className="px-4 py-3">{m.email}</td>
-                      <td className="px-4 py-3">{m.fromName || '—'}</td>
+                      <td className="px-4 py-3">{m.address}</td>
+                      <td className="px-4 py-3">{m.displayName || '—'}</td>
                       <td className="px-4 py-3">
                         <select
                           value={m.status || 'warming'}
@@ -106,7 +106,7 @@ export default function Mailboxes() {
                       <td className="px-4 py-3">
                         <input
                           type="number"
-                          defaultValue={m.dailyCap ?? 40}
+                          defaultValue={m.dailyCap ?? 5}
                           onBlur={(e) =>
                             update.mutate({
                               id,
@@ -139,16 +139,16 @@ export default function Mailboxes() {
               id="mbemail"
               type="email"
               required
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
           </div>
           <div>
             <Label htmlFor="mbname">From name</Label>
             <Input
               id="mbname"
-              value={form.fromName}
-              onChange={(e) => setForm({ ...form, fromName: e.target.value })}
+              value={form.displayName}
+              onChange={(e) => setForm({ ...form, displayName: e.target.value })}
             />
           </div>
           <div>
@@ -159,6 +159,9 @@ export default function Mailboxes() {
               value={form.dailyCap}
               onChange={(e) => setForm({ ...form, dailyCap: e.target.value })}
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              New mailboxes: start at 5/day and raise gradually over 3–4 weeks to protect deliverability.
+            </p>
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
