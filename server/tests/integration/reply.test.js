@@ -67,8 +67,8 @@ describe('reply.service (ACID stop + deal advance)', () => {
     expect((await Enrollment.findById(enr._id)).status).toBe('replied');
     const deal = await Deal.findById(res.dealId);
     expect(deal.stage).toBe('replied');
-    // Two transitions (new→contacted→replied) each wrote an audit entry.
-    expect(await AuditLog.countDocuments({ action: 'deal.transition' })).toBe(2);
+    // One audited transition straight to replied (new→replied).
+    expect(await AuditLog.countDocuments({ action: 'deal.transition' })).toBe(1);
   });
 
   it('unsubscribe reply suppresses the email and stops the enrollment', async () => {

@@ -9,7 +9,7 @@ describe('stateMachine', () => {
 
   it('rejects an illegal deal transition with 409', () => {
     try {
-      assertTransition('deal', 'new', 'won');
+      assertTransition('deal', 'won', 'new'); // won is final
       throw new Error('should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(ApiError);

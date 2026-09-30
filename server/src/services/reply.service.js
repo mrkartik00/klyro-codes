@@ -99,14 +99,13 @@ export async function handleReply({
       // Reload to guarantee a fresh, fully-populated doc (safe across
       // transaction-body retries where an in-memory doc may be stale).
       deal = await Deal.findOne({ workspaceId, _id: deal._id }).session(session);
-      // Advance new → contacted → replied via the guarded state machine.
-      while (canTransition('deal', deal.stage, 'contacted') || canTransition('deal', deal.stage, 'replied')) {
-        const next = deal.stage === 'new' ? 'contacted' : 'replied';
+      // A reply moves an early deal to "replied"; never pull a deal backwards
+      // (it may already be at call/quote because someone moved it by hand).
+      if (['new', 'contacted'].includes(deal.stage)) {
         await transition(
-          { doc: deal, entity: 'deal', to: next, statusField: 'stage', actorId, actorType: 'system' },
+          { doc: deal, entity: 'deal', to: 'replied', statusField: 'stage', actorId, actorType: 'system' },
           session,
         );
-        if (deal.stage === 'replied') break;
       }
       if (lead && lead.stage !== 'converted') {
         lead.stage = 'replied';

@@ -54,13 +54,14 @@ describe('transition.service (ACID)', () => {
   });
 
   it('rejects an illegal transition with 409 and writes nothing', async () => {
-    const deal = await Deal.create({ workspaceId: ws._id, title: 'Gamma', stage: 'new' });
+    // A won deal is final: it can't be reopened.
+    const deal = await Deal.create({ workspaceId: ws._id, title: 'Gamma', stage: 'won' });
     await expect(
       withTransaction((s) =>
-        transition({ doc: deal, entity: 'deal', to: 'won', statusField: 'stage' }, s),
+        transition({ doc: deal, entity: 'deal', to: 'new', statusField: 'stage' }, s),
       ),
     ).rejects.toMatchObject({ statusCode: 409 });
-    expect((await Deal.findById(deal._id)).stage).toBe('new');
+    expect((await Deal.findById(deal._id)).stage).toBe('won');
     expect(await AuditLog.countDocuments()).toBe(0);
     expect(ApiError).toBeTruthy();
   });

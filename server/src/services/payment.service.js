@@ -26,8 +26,7 @@ export async function acceptQuotation({ workspaceId, quotationId, clientUserId, 
 
     const deal = await Deal.findOne({ workspaceId, _id: quote.dealId }).session(session);
     if (deal && deal.stage !== 'won') {
-      // deal may be at quote or earlier; walk to won through allowed steps
-      if (deal.stage === 'replied' || deal.stage === 'call') deal.stage = 'quote';
+      // Accepting a quote wins the deal from any open stage.
       assertTransition('deal', deal.stage, 'won');
       deal.stage = 'won';
       deal.value = { amountMinor: quote.totalMinor, currency: quote.currency };

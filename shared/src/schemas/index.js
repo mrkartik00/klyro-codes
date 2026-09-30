@@ -18,8 +18,9 @@ export const enquirySchema = z.object({
   company: z.string().trim().max(150).optional(),
   message: z.string().trim().min(10).max(5000),
   budgetRange: z.string().max(50).optional(),
-  // Honeypot: must stay empty. Bots fill every field.
-  website_url: z.string().max(0).optional(),
+  // Honeypot: humans leave it empty. Accept any value here so bots get the same
+  // 200 as humans; the route drops filled submissions silently.
+  website_url: z.string().max(2000).optional(),
 });
 
 export const registerSchema = z.object({

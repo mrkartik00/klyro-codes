@@ -88,14 +88,16 @@ export const SUPPRESSION_TYPES = Object.freeze(['email', 'domain', 'phone']);
 
 // Allowed status transitions, consumed by utils/stateMachine.js.
 export const TRANSITIONS = Object.freeze({
+  // Deals are moved by hand on the board, so any open stage can go to any
+  // other; lost deals can be reopened; won is final (money/project exist).
   deal: {
-    new: ['contacted', 'lost'],
-    contacted: ['replied', 'lost'],
-    replied: ['call', 'quote', 'lost'],
-    call: ['quote', 'lost'],
-    quote: ['won', 'lost'],
+    new: ['contacted', 'replied', 'call', 'quote', 'won', 'lost'],
+    contacted: ['new', 'replied', 'call', 'quote', 'won', 'lost'],
+    replied: ['new', 'contacted', 'call', 'quote', 'won', 'lost'],
+    call: ['new', 'contacted', 'replied', 'quote', 'won', 'lost'],
+    quote: ['new', 'contacted', 'replied', 'call', 'won', 'lost'],
     won: [],
-    lost: [],
+    lost: ['new', 'contacted', 'replied', 'call', 'quote'],
   },
   quotation: {
     draft: ['sent'],

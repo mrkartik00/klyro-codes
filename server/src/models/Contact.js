@@ -12,6 +12,11 @@ const contactSchema = new mongoose.Schema({
   linkedinUrl: { type: String },
 });
 contactSchema.plugin(basePlugin, { softDelete: true });
-contactSchema.index({ workspaceId: 1, email: 1 }, { unique: true, sparse: true });
+// Partial, not sparse: sparse still indexes explicit nulls, so contacts without
+// an email would collide.
+contactSchema.index(
+  { workspaceId: 1, email: 1 },
+  { unique: true, partialFilterExpression: { email: { $type: 'string' } } },
+);
 
 export const Contact = mongoose.model('Contact', contactSchema);
