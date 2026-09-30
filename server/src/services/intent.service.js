@@ -111,7 +111,8 @@ export async function fetchFreelancer({ keywords, sinceDays, filters = {} }) {
 }
 
 export async function fetchHackerNews({ keywords, sinceDays }) {
-  const since = Math.floor(Date.now() / 1000 - sinceDays * 86400);
+  // The monthly "Freelancer? Seeking freelancer?" thread stays useful all month.
+  const since = Math.floor(Date.now() / 1000 - Math.max(sinceDays, 30) * 86400);
   const searches = [
     { query: '"SEEKING FREELANCER"', tags: 'comment', trusted: true, label: 'HN · Seeking freelancer' },
     ...(keywords.length ? keywords : ['looking for a developer', 'hire a developer', 'need an app built', 'looking for an agency']).map((k) => ({
@@ -150,7 +151,7 @@ export async function fetchHackerNews({ keywords, sinceDays }) {
 }
 
 // Web/software CPV codes (EU procurement vocabulary).
-const WEB_CPV = /^(72413|72212224|72415|72420|72421|72422|72212|72230|72262|48)/;
+const WEB_CPV = /^(72|48|79342|79415)/; // IT services, software, digital marketing/design consultancy
 const cpvOf = (t = {}) => [t.classification?.id, ...(t.items || []).flatMap((i) => [i.classification?.id, ...(i.additionalClassifications || []).map((c) => c.id)])].filter(Boolean);
 
 async function ocdsPages(url, pages = 5) {
@@ -176,7 +177,7 @@ export async function fetchTenders({ sinceDays }) {
     const t = r.tender || {};
     const text = `${t.title || ''}\n${t.description || ''}`;
     if (!(cpvOf(t).some((c) => WEB_CPV.test(c)) || BUILD_RE.test(text))) return;
-    if (!BUILD_RE.test(text) && !/software|digital|portal|platform|application|system/i.test(text)) return;
+    if (!BUILD_RE.test(text) && !/software|digital|portal|platform|application|system|data|online|web/i.test(text)) return;
     const id = `td_${r.ocid || r.id}`;
     if (out.has(id)) return;
     const value = t.value?.amount ? `${t.value.amount.toLocaleString('en-GB')} ${t.value.currency || 'GBP'}` : '';
