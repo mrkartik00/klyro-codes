@@ -146,10 +146,12 @@ async function redditGet(apiPath, rssPath) {
   return parseRedditFeed(await res.text());
 }
 
-/** Search one subreddit for a phrase (newest first). */
-export async function searchReddit({ community, query, maxAgeDays = 14 }) {
+/** Search one subreddit for any of the phrases (one request, newest first). */
+export async function searchReddit({ community, query, queries, maxAgeDays = 14 }) {
   const t = maxAgeDays <= 1 ? 'day' : maxAgeDays <= 7 ? 'week' : maxAgeDays <= 31 ? 'month' : 'year';
-  const q = new URLSearchParams({ q: query, restrict_sr: '1', sort: 'new', t, limit: '50' });
+  const list = (queries?.length ? queries : [query]).filter(Boolean);
+  const text = list.length > 1 ? list.map((x) => `"${x.replace(/"/g, '')}"`).join(' OR ') : list[0];
+  const q = new URLSearchParams({ q: text, restrict_sr: '1', sort: 'new', t, limit: '100' });
   const sub = encodeURIComponent(community);
   return redditGet(`/r/${sub}/search?${q}`, `/r/${sub}/search.rss?${q}`);
 }
@@ -170,10 +172,14 @@ export function looksLikeBuyer(post, { maxAgeDays = 14 } = {}) {
   if (!post.author || ['[deleted]', 'AutoModerator'].includes(post.author)) return false;
   const age = (Date.now() - new Date(post.postedAt).getTime()) / 864e5;
   if (Number.isFinite(age) && age > maxAgeDays) return false;
+  const board = HIRING_BOARDS[String(post.community || '').toLowerCase()];
+  if (board) {
+    // On hiring boards the title says who is hiring what; the body is often a
+    // company description ("our agency…") that must not disqualify the post.
+    return board.test(post.title) && BUILD_RE.test(post.title) && !SELLER_RE.test(post.title);
+  }
   if (SELLER_RE.test(text)) return false;
   if (!BUILD_RE.test(text)) return false;
-  const board = HIRING_BOARDS[String(post.community || '').toLowerCase()];
-  if (board) return board.test(post.title);
   return HIRE_RE.test(text);
 }
 
@@ -359,14 +365,23 @@ export async function runRedditTarget({ workspaceId, target, job }) {
   await progress({ status: 'running', startedAt: new Date() });
   try {
     for (const community of communities.length ? communities : DEFAULT_COMMUNITIES) {
+      if (created >= limit) break;
       const board = Boolean(HIRING_BOARDS[community.toLowerCase()]);
-      for (const query of board ? ['(newest posts)'] : queries.length ? queries : DEFAULT_QUERIES) {
-        if (created >= limit) break;
+      // One request per community (phrases OR-ed) keeps us well under Reddit's
+      // rate limit; on 429, wait a minute and try once more.
+      const fetchPosts = () =>
+        board ? latestReddit({ community }) : searchReddit({ community, queries: queries.length ? queries : DEFAULT_QUERIES, maxAgeDays });
+      {
         let posts = [];
         try {
-          posts = board ? await latestReddit({ community }) : await searchReddit({ community, query, maxAgeDays });
+          posts = await fetchPosts();
         } catch (err) {
-          logger.warn({ err, community, query }, 'reddit fetch failed');
+          if (/429/.test(err.message)) {
+            await sleep(60000);
+            posts = await fetchPosts().catch(() => []);
+          } else {
+            logger.warn({ err, community }, 'reddit fetch failed');
+          }
         }
         for (const post of posts) {
           if (seen.has(post.id) || created >= limit) continue;
@@ -380,7 +395,7 @@ export async function runRedditTarget({ workspaceId, target, job }) {
           if (r.created) created += 1;
         }
         await progress({ found, ingested: created });
-        await sleep(2500); // be polite to Reddit
+        await sleep(6000); // be polite to Reddit
       }
     }
     await progress({ status: 'enriched', found, ingested: created, finishedAt: new Date() });

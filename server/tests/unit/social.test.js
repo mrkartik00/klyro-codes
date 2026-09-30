@@ -70,3 +70,16 @@ describe('heuristicIntent (AI unavailable)', () => {
     expect(heuristicIntent({ title: 'Where to build a website for a small business', text: '' })).toBeLessThan(0.55);
   });
 });
+
+describe('hiring boards judge by title', () => {
+  it('keeps a [Hiring] developer post even if the body says "our agency"', () => {
+    expect(
+      looksLikeBuyer(post({ title: '[Hiring] Need part time full stack developer, US hours' }, { community: 'forhire', text: 'Our agency builds websites for clients and we need help.' })),
+    ).toBe(true);
+  });
+  it('drops a [Hiring] non-dev role even if the body mentions a website', () => {
+    expect(
+      looksLikeBuyer(post({ title: '[Hiring] (Online) Experienced Appointment Setter — $25/hour' }, { community: 'forhire', text: 'Book calls for our website design clients.' })),
+    ).toBe(false);
+  });
+});
