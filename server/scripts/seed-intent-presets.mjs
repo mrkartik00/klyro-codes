@@ -24,9 +24,11 @@ const PRESETS = [
   { source: 'bluesky', group: 'Social networks', name: 'Bluesky — people hiring a developer', keywords: SOCIAL, filters: { maxAgeDays: 2, minIntent: 0.6 } },
   // Brave: public RFPs (US councils, nonprofits, schools…) are the best yield; LinkedIn/X posts are thin in its index.
   { source: 'brave', group: 'Public tenders', name: 'RFPs — website redesign & development (web search)', keywords: ['"request for proposals" website redesign', '"request for proposals" "website development"', 'RFP "website redesign"', '"request for proposal" "mobile app development"', '"seeking proposals" website'], filters: { sites: ['*'], freshness: 'pm', maxQueries: 5, minIntent: 0.6, maxAgeDays: 45 } },
-  { source: 'brave', group: 'Social networks', name: 'LinkedIn — posts asking for a developer', keywords: SOCIAL.slice(0, 2), filters: { sites: ['linkedin.com/posts'], freshness: 'pm', maxQueries: 2, minIntent: 0.6 } },
-  { source: 'brave', group: 'Social networks', name: 'X — posts asking for a developer', keywords: SOCIAL.slice(0, 2), filters: { sites: ['x.com'], freshness: 'pm', maxQueries: 2, minIntent: 0.6 } },
-  { source: 'brave', group: 'Social networks', name: 'Threads, Facebook, Quora, Indie Hackers — web search', keywords: SOCIAL.slice(0, 2), filters: { sites: ['threads.net', 'facebook.com', 'quora.com', 'indiehackers.com'], freshness: 'pm', maxQueries: 4, minIntent: 0.6 } },
+  // Brave's index barely covers LinkedIn/X/Threads posts (0 results in tests) — paused; use Clip & search instead.
+  { source: 'brave', group: 'Public tenders', name: 'RFPs — apps, portals & schools/nonprofits (web search)', keywords: ['"request for proposals" "mobile app"', '"request for proposals" "web portal"', '"request for proposals" website school district', '"request for proposals" website nonprofit', '"RFQ" "website design"'], filters: { sites: ['*'], freshness: 'pm', maxQueries: 5, minIntent: 0.6, maxAgeDays: 45 } },
+  { source: 'brave', group: 'Social networks', name: 'LinkedIn — posts asking for a developer', keywords: SOCIAL.slice(0, 2), filters: { sites: ['linkedin.com/posts'], freshness: 'pm', maxQueries: 2, minIntent: 0.6 }, pausedByDefault: true },
+  { source: 'brave', group: 'Social networks', name: 'X — posts asking for a developer', keywords: SOCIAL.slice(0, 2), filters: { sites: ['x.com'], freshness: 'pm', maxQueries: 2, minIntent: 0.6 }, pausedByDefault: true },
+  { source: 'brave', group: 'Social networks', name: 'Threads, Facebook, Quora, Indie Hackers — web search', keywords: SOCIAL.slice(0, 2), filters: { sites: ['threads.net', 'facebook.com', 'quora.com', 'indiehackers.com'], freshness: 'pm', maxQueries: 4, minIntent: 0.6 }, pausedByDefault: true },
   { source: 'x', group: 'Social networks', name: 'X API — people hiring (paid, capped)', keywords: SOCIAL, filters: { minIntent: 0.6 }, pausedByDefault: true },
   { source: 'companieshouse', group: 'New businesses', name: 'New UK companies — local services', keywords: [], maxResults: 60, filters: { days: 3 } },
 ];
@@ -36,7 +38,7 @@ for (const p of PRESETS) {
   const active = !pausedByDefault && missingKeys(p.source).length === 0;
   await ScrapeTarget.updateOne(
     { workspaceId: ws._id, name: p.name, deletedAt: null },
-    { $set: { workspaceId: ws._id, maxResults: 25, country: 'GB', ...rest, ...(active ? { active: true } : {}) }, $setOnInsert: { createdBy: admin?._id, ...(active ? {} : { active: false }) } },
+    { $set: { workspaceId: ws._id, maxResults: 25, country: 'GB', ...rest, ...(active ? { active: true } : {}), ...(pausedByDefault ? { active: false } : {}) }, $setOnInsert: { createdBy: admin?._id, ...(active ? {} : { active: false }) } },
     { upsert: true },
   );
   console.log(`${active ? 'on ' : 'off'} ${p.source.padEnd(15)} ${p.name}${missingKeys(p.source).length ? `  (needs ${missingKeys(p.source).join(', ')})` : ''}`);
