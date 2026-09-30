@@ -59,14 +59,15 @@ export default function Quotations() {
   const refresh = () => qc.invalidateQueries({ queryKey: ['deal-quotations', dealId] });
 
   const create = useMutation({
-    mutationFn: () =>
+    // validUntil is computed at submit time (inside the mutation), not render.
+    mutationFn: (days) =>
       unwrap(
         api.post(`/admin/deals/${dealId}/quotations`, {
           currency,
           items,
           discountPercent: Number(discount) || 0,
           taxPercent: Number(tax) || 0,
-          validUntil: new Date(Date.now() + (Number(validDays) || 14) * 864e5).toISOString(),
+          validUntil: new Date(Date.now() + days * 864e5).toISOString(),
         }),
       ),
     onSuccess: () => {
@@ -199,7 +200,7 @@ export default function Quotations() {
               <span className="text-muted-foreground">Subtotal {formatMoney(subtotal, currency)} · </span>
               <span className="font-semibold">Total {formatMoney(total, currency)}</span>
             </div>
-            <Button disabled={!dealId || !items.length || create.isPending} onClick={() => create.mutate()}>
+            <Button disabled={!dealId || !items.length || create.isPending} onClick={() => create.mutate(Number(validDays) || 14)}>
               {create.isPending ? 'Saving…' : 'Save draft quote'}
             </Button>
           </div>
