@@ -18,11 +18,11 @@ export default function Dashboard() {
 
   const outstanding = invoiceList
     .filter((i) => i.status !== 'paid' && i.status !== 'void')
-    .reduce((sum, i) => sum + (Number(i.amount ?? i.total ?? 0) || 0), 0);
+    .reduce((sum, i) => sum + (Number(Math.max(0, (i.amountMinor ?? 0) - (i.paidMinor ?? 0))) || 0), 0);
 
   const outstandingCurrency = invoiceList[0]?.currency || 'USD';
   const activeProjects = projectList.filter(
-    (p) => p.status !== 'completed' && p.status !== 'archived'
+    (p) => p.status !== 'delivered' && p.status !== 'closed'
   ).length;
 
   return (
@@ -79,7 +79,7 @@ export default function Dashboard() {
                 className="flex items-center justify-between rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 transition-colors duration-150 hover:border-[var(--color-primary)]"
               >
                 <div>
-                  <p className="font-medium">{p.name || p.title || 'Project'}</p>
+                  <p className="font-medium">{p.title || 'Project'}</p>
                   <p className="text-sm text-[var(--color-muted-foreground)]">
                     {p.summary || p.description || '—'}
                   </p>
@@ -115,7 +115,7 @@ export default function Dashboard() {
                   </p>
                   <p className="text-sm text-[var(--color-muted-foreground)]">
                     {formatMoney(
-                      inv.amount ?? inv.total ?? 0,
+                      inv.amountMinor ?? 0,
                       inv.currency || 'USD'
                     )}
                   </p>

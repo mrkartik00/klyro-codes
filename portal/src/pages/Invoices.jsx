@@ -22,12 +22,14 @@ export default function Invoices() {
         <EmptyState title="No invoices yet" />
       ) : (
         <Card className="p-0 overflow-x-auto">
-          <table className="w-full min-w-[520px] text-sm [&_th]:whitespace-nowrap">
+          <table className="w-full min-w-[640px] text-sm [&_th]:whitespace-nowrap">
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted-foreground)]">
                 <th className="p-3 font-medium">Invoice</th>
                 <th className="p-3 font-medium">Issued</th>
+                <th className="p-3 font-medium">Due</th>
                 <th className="p-3 text-right font-medium">Amount</th>
+                <th className="p-3 text-right font-medium">Balance</th>
                 <th className="p-3 font-medium">Status</th>
               </tr>
             </thead>
@@ -43,11 +45,14 @@ export default function Invoices() {
                   <td className="p-3 text-[var(--color-muted-foreground)]">
                     {formatDate(inv.issuedAt || inv.createdAt)}
                   </td>
+                  <td className="p-3 text-[var(--color-muted-foreground)]">
+                    {inv.dueDate ? formatDate(inv.dueDate) : '—'}
+                  </td>
                   <td className="p-3 text-right">
-                    {formatMoney(
-                      inv.amount ?? inv.total ?? 0,
-                      inv.currency || 'USD'
-                    )}
+                    {formatMoney(inv.amountMinor ?? 0, inv.currency || 'USD')}
+                  </td>
+                  <td className="p-3 text-right">
+                    {formatMoney(Math.max(0, (inv.amountMinor ?? 0) - (inv.paidMinor ?? 0)), inv.currency || 'USD')}
                   </td>
                   <td className="p-3">
                     <StatusBadge status={inv.status} />

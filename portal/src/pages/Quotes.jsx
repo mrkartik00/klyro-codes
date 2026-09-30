@@ -108,18 +108,28 @@ function QuoteDetail({ id }) {
   }
 
   const currency = data.currency || 'USD';
-  const items = Array.isArray(data.lineItems)
-    ? data.lineItems
-    : Array.isArray(data.items)
-      ? data.items
-      : [];
-  const computedTotal = items.reduce(
-    (sum, it) =>
-      sum + (Number(it.amount ?? (it.unitPrice || 0) * (it.quantity || 1)) || 0),
-    0
-  );
-  const total = Number(data.total ?? computedTotal) || 0;
+  // API shape: items[{description, quantity, unitAmountMinor}], totalMinor.
+  const items = (Array.isArray(data.items) ? data.items : []).map((it) => {
+    const unit = Number(it.unitAmountMinor ?? it.unitPrice ?? 0) || 0;
+    const qty = Number(it.quantity ?? 1) || 1;
+    return { ...it, unit, qty, amount: unit * qty };
+  });
+  const subtotal = items.reduce((sum, it) => sum + it.amount, 0);
+  const total = Number(data.totalMinor ?? subtotal) || 0;
   const accepted = data.status === 'accepted';
+  const expired = data.validUntil && new Date(data.validUntil) < new Date();
+  // Only a sent, unexpired quote can be accepted (matches the server rules).
+  const canAccept = data.status === 'sent' && !expired;
+  const note =
+    data.status === 'draft'
+      ? 'This quote is still being prepared.'
+      : data.status === 'superseded'
+        ? 'A newer version of this quote replaced it — check your Quotes list.'
+        : data.status === 'rejected'
+          ? 'This quote was declined.'
+          : expired && !accepted
+            ? 'This quote has expired. Message us for an updated one.'
+            : '';
 
   async function onAccept() {
     setError('');
@@ -142,10 +152,10 @@ function QuoteDetail({ id }) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="font-heading text-2xl font-semibold">
-            {data.title || 'Quotation'}
+            Quotation v{data.version ?? 1}
           </h1>
           <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
-            {data.number || id}
+            {data.validUntil ? `Valid until ${formatDate(data.validUntil)}` : `Ref ${String(id).slice(-8)}`}
           </p>
         </div>
         <StatusBadge status={data.status} />
@@ -178,22 +188,24 @@ function QuoteDetail({ id }) {
                   className="border-b border-[var(--color-border)] last:border-0"
                 >
                   <td className="p-3">{it.description || it.name || '—'}</td>
-                  <td className="p-3 text-right">{it.quantity ?? 1}</td>
-                  <td className="p-3 text-right">
-                    {formatMoney(it.unitPrice ?? 0, currency)}
-                  </td>
-                  <td className="p-3 text-right">
-                    {formatMoney(
-                      it.amount ??
-                        (it.unitPrice || 0) * (it.quantity || 1),
-                      currency
-                    )}
-                  </td>
+                  <td className="p-3 text-right">{it.qty}</td>
+                  <td className="p-3 text-right">{formatMoney(it.unit, currency)}</td>
+                  <td className="p-3 text-right">{formatMoney(it.amount, currency)}</td>
                 </tr>
               ))
             )}
           </tbody>
           <tfoot>
+            {(data.discountPercent > 0 || data.taxPercent > 0) && (
+              <tr className="text-[var(--color-muted-foreground)]">
+                <td className="p-3" colSpan={3}>
+                  Subtotal {formatMoney(subtotal, currency)}
+                  {data.discountPercent > 0 ? ` · discount ${data.discountPercent}%` : ''}
+                  {data.taxPercent > 0 ? ` · tax ${data.taxPercent}%` : ''}
+                </td>
+                <td />
+              </tr>
+            )}
             <tr className="font-semibold">
               <td className="p-3" colSpan={3}>
                 Total
@@ -212,10 +224,12 @@ function QuoteDetail({ id }) {
         </p>
       ) : null}
 
+      {note ? <p className="text-sm text-[var(--color-muted-foreground)]">{note}</p> : null}
+
       <div>
         <Button
           onClick={onAccept}
-          disabled={accepted || accept.isPending}
+          disabled={!canAccept || accept.isPending}
         >
           {accepted
             ? 'Accepted'

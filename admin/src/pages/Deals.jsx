@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
@@ -81,6 +82,14 @@ function DealCard({ deal, onMove, stages }) {
           ))}
         </select>
       </label>
+      {deal.stage !== 'won' && deal.stage !== 'lost' && (
+        <Link
+          to={`/quotations?deal=${dealId(deal)}`}
+          className="mt-2 flex h-9 items-center justify-center rounded-md border border-border text-xs font-medium hover:bg-muted"
+        >
+          Create quote
+        </Link>
+      )}
     </div>
   );
 }
