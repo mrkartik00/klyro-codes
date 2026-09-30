@@ -1,7 +1,11 @@
 import { Router } from 'express';
+import { LeadSource } from '../models/LeadSource.js';
+import { withTransaction } from '../utils/transaction.js';
+import { parseSocialUrl } from '../utils/socialLinks.js';
 import { z } from 'zod';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { ok } from '../utils/apiResponse.js';
+import { ok, created } from '../utils/apiResponse.js';
+import { registrableDomain } from '../utils/normalize.js';
 import { validateBody } from '../middleware/validate.js';
 import { listScoped, getScoped } from '../utils/query.js';
 import { Lead } from '../models/Lead.js';
@@ -94,44 +98,89 @@ leadsRouter.post(
 );
 
 // Manual single lead add.
+// Add a lead by hand — from a business name, or from any profile/post link
+// (LinkedIn, X, Reddit, Instagram, Facebook, website). Atomic; reuses an
+// existing contact with the same email instead of failing.
 leadsRouter.post(
   '/',
   validateBody(
-    z.object({
-      name: z.string().min(1),
-      domain: z.string().optional(),
-      email: z.string().optional(),
-      phone: z.string().optional(),
-      country: z.string().optional(),
-      category: z.string().optional(),
-    }),
+    z
+      .object({
+        name: z.string().trim().max(200).optional(),
+        domain: z.string().trim().max(300).optional(),
+        email: z.string().trim().email().max(254).optional().or(z.literal('')),
+        phone: z.string().trim().max(40).optional(),
+        country: z.string().trim().max(3).optional(),
+        category: z.string().trim().max(100).optional(),
+        contactName: z.string().trim().max(200).optional(),
+        notes: z.string().max(5000).optional(),
+        links: z.array(z.string().trim().max(500)).max(10).default([]),
+      })
+      .refine((v) => v.name || v.links.length || v.domain, { message: 'Enter a name, a website or a profile link' }),
   ),
   asyncHandler(async (req, res) => {
-    const org = await Organization.create({
-      workspaceId: req.workspaceId,
-      createdBy: req.auth.userId,
-      name: req.body.name,
-      domain: req.body.domain,
-      country: req.body.country,
-      category: req.body.category,
-      phone: req.body.phone,
-    });
-    let contact = null;
-    if (req.body.email) {
-      contact = await Contact.create({
-        workspaceId: req.workspaceId,
-        createdBy: req.auth.userId,
-        organizationId: org._id,
-        email: req.body.email,
-      });
+    const b = req.body;
+    const parsed = b.links.map(parseSocialUrl).filter(Boolean);
+    const websiteLink = b.links.find((l) => !parseSocialUrl(l));
+    const domain = registrableDomain(b.domain || websiteLink || '') || undefined;
+    const socials = {};
+    const handles = {};
+    for (const p of parsed) {
+      socials[p.platform] ??= p.url;
+      if (p.handle) handles[p.platform] ??= p.handle;
     }
-    const lead = await Lead.create({
-      workspaceId: req.workspaceId,
-      createdBy: req.auth.userId,
-      organizationId: org._id,
-      primaryContactId: contact?._id,
-      source: 'manual',
+    const platform = parsed[0]?.platform ?? 'manual';
+    const handle = parsed.find((p) => p.handle)?.handle;
+    const name = b.name || handle || domain || 'New lead';
+    const email = b.email ? b.email.toLowerCase() : null;
+
+    const result = await withTransaction(async (session) => {
+      const [org] = await Organization.create(
+        [{ workspaceId: req.workspaceId, createdBy: req.auth.userId, name, domain, country: b.country, category: b.category, phone: b.phone, socials }],
+        { session, ordered: true },
+      );
+      let contact = email ? await Contact.findOne({ workspaceId: req.workspaceId, email }).session(session) : null;
+      if (contact) {
+        contact.socials = { ...(contact.socials?.toObject?.() ?? contact.socials ?? {}), ...socials };
+        contact.handles = { ...(contact.handles?.toObject?.() ?? contact.handles ?? {}), ...handles };
+        await contact.save({ session });
+      } else if (email || b.contactName || parsed.length) {
+        [contact] = await Contact.create(
+          [
+            {
+              workspaceId: req.workspaceId,
+              createdBy: req.auth.userId,
+              organizationId: org._id,
+              email,
+              name: b.contactName,
+              phone: b.phone,
+              socials,
+              handles,
+              linkedinUrl: socials.linkedin,
+            },
+          ],
+          { session, ordered: true },
+        );
+      }
+      const [lead] = await Lead.create(
+        [
+          {
+            workspaceId: req.workspaceId,
+            createdBy: req.auth.userId,
+            organizationId: org._id,
+            primaryContactId: contact?._id,
+            source: platform,
+            sourceUrl: parsed[0]?.url ?? (websiteLink || undefined),
+            country: b.country,
+            notes: b.notes,
+            tags: platform !== 'manual' ? [platform] : [],
+          },
+        ],
+        { session, ordered: true },
+      );
+      await LeadSource.create([{ workspaceId: req.workspaceId, leadId: lead._id, channel: platform, raw: { links: b.links } }], { session, ordered: true });
+      return lead;
     });
-    return ok(res, lead);
+    return created(res, { ...result.toObject(), leadId: result._id });
   }),
 );

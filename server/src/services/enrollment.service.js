@@ -17,14 +17,17 @@ export async function ineligibleReason({ workspaceId, campaignId, lead }, sessio
   const contact = lead.primaryContactId
     ? await Contact.findOne({ workspaceId, _id: lead.primaryContactId }).session(session)
     : null;
-  if (!contact?.email || contact.emailStatus === 'invalid') return 'no_valid_email';
+  // Email is only required when the sequence actually sends email; LinkedIn/X
+  // steps are manual tasks and work from the lead's profile links.
+  const needsEmail = await SequenceStep.exists({ workspaceId, campaignId, channel: 'email' }).session(session);
+  if (needsEmail && (!contact?.email || contact.emailStatus === 'invalid')) return 'no_valid_email';
   // UK: only email incorporated companies (PECR).
   const org = await lead.populate({ path: 'organizationId', options: { session } });
   const orgDoc = org.organizationId;
   if (orgDoc?.country === 'GB' && !['ltd', 'llp', 'plc'].includes(orgDoc.companyType)) {
     return 'uk_not_incorporated';
   }
-  if (await isSuppressed({ workspaceId, email: contact.email, phone: contact.phone }, session)) {
+  if (contact?.email && (await isSuppressed({ workspaceId, email: contact.email, phone: contact.phone }, session))) {
     return 'suppressed';
   }
   const existing = await Enrollment.findOne({ workspaceId, campaignId, leadId: lead._id }).session(session);

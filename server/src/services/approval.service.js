@@ -4,6 +4,7 @@ import { withTransaction } from '../utils/transaction.js';
 import { writeAudit } from './audit.service.js';
 import { emitToWorkspace } from '../socket/index.js';
 import { ApiError } from '../utils/ApiError.js';
+import { advanceEnrollment } from './send.service.js';
 
 export async function createApproval({ workspaceId, enrollmentId, leadId, stepOrder, channel, draft, createdBy }) {
   const [doc] = await Approval.create(
@@ -28,7 +29,13 @@ export async function decideApproval({ workspaceId, approvalId, decision, edited
     await approval.save({ session });
 
     // A rejected draft leaves the enrollment where it is (n8n will re-draft or
-    // skip); an approved draft becomes eligible for the send claim.
+    // skip); an approved EMAIL draft becomes eligible for the send claim. A
+    // manual channel (LinkedIn/X/Reddit/Instagram) is sent by you, so approving
+    // it means "done" and the sequence moves on.
+    if (approval.status === 'approved' && approval.channel !== 'email' && approval.enrollmentId) {
+      const enrollment = await Enrollment.findOne({ workspaceId, _id: approval.enrollmentId }).session(session);
+      await advanceEnrollment({ workspaceId, enrollment, fromStep: approval.stepOrder }, session);
+    }
     await writeAudit(
       {
         workspaceId,

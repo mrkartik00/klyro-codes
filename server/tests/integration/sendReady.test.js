@@ -101,3 +101,26 @@ describe('approved-draft send loop', () => {
     expect(await resolveReplyEnrollment({ workspaceId: ws._id, threadId: 'nope', contactEmail: 'x@y.com' })).toBeNull();
   });
 });
+
+describe('send priority', () => {
+  it('orders ready sends by lead score (highest first)', async () => {
+    const { Lead: L } = await import('../../src/models/Lead.js');
+    const ws2 = await (await import('../../src/models/Workspace.js')).Workspace.create({ name: 'P', slug: `prio-${Date.now()}` });
+    const { Organization: O } = await import('../../src/models/Organization.js');
+    const { Campaign: C } = await import('../../src/models/Campaign.js');
+    const { Enrollment: E } = await import('../../src/models/Enrollment.js');
+    const { Approval: Ap } = await import('../../src/models/Approval.js');
+    const camp = await C.create({ workspaceId: ws2._id, name: 'c' });
+    const mk = async (score) => {
+      const o = await O.create({ workspaceId: ws2._id, name: `o${score}` });
+      const l = await L.create({ workspaceId: ws2._id, organizationId: o._id, score });
+      const e = await E.create({ workspaceId: ws2._id, campaignId: camp._id, leadId: l._id, currentStep: 1 });
+      await Ap.create({ workspaceId: ws2._id, enrollmentId: e._id, leadId: l._id, stepOrder: 1, status: 'approved', decidedAt: new Date(), draft: { subject: 's', body: 'b' } });
+      return String(e._id);
+    };
+    const low = await mk(10);
+    const high = await mk(90);
+    const ready = await readySends({ workspaceId: ws2._id });
+    expect(ready.map((r) => r.enrollmentId)).toEqual([high, low]);
+  });
+});

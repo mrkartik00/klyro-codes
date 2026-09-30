@@ -12,6 +12,7 @@ import { ScrapeJob } from '../models/ScrapeTarget.js';
 import { Organization } from '../models/Organization.js';
 import { Enrollment } from '../models/Enrollment.js';
 import { startScrapeJob, importLeadsCsv } from '../services/scrape.service.js';
+import { startRedditJob } from '../services/social.service.js';
 import { listWorkflows, setWorkflowActive, listExecutions, triggerWorkflow } from '../integrations/n8n/index.js';
 import { encrypt } from '../utils/crypto.js';
 import { writeAudit } from '../services/audit.service.js';
@@ -73,8 +74,10 @@ scrapeRouter.post(
   '/targets',
   validateBody(
     z.object({
-      name: z.string(),
-      country: z.string(),
+      name: z.string().trim().min(1),
+      source: z.enum(['maps', 'reddit']).default('maps'),
+      communities: z.array(z.string()).default([]),
+      country: z.string().default('US'),
       cities: z.array(z.string()).default([]),
       categories: z.array(z.string()).default([]),
       keywords: z.array(z.string()).default([]),
@@ -90,9 +93,22 @@ scrapeRouter.post(
 // E35 — start a scrape run + list jobs.
 scrapeRouter.post(
   '/targets/:id/run',
-  asyncHandler(async (req, res) =>
-    created(res, await startScrapeJob({ workspaceId: req.workspaceId, scrapeTargetId: req.params.id, createdBy: req.auth.userId })),
-  ),
+  asyncHandler(async (req, res) => {
+    const target = await ScrapeTarget.findOne({ workspaceId: req.workspaceId, _id: req.params.id }).lean();
+    if (!target) throw ApiError.notFound('Lead source not found');
+    const args = { workspaceId: req.workspaceId, scrapeTargetId: req.params.id, createdBy: req.auth.userId };
+    return created(res, target.source === 'reddit' ? await startRedditJob(args) : await startScrapeJob(args));
+  }),
+);
+// Pause/resume a saved search (scheduled Reddit scans skip inactive ones).
+scrapeRouter.patch(
+  '/targets/:id',
+  validateBody(z.object({ active: z.boolean().optional(), name: z.string().trim().min(1).optional() })),
+  asyncHandler(async (req, res) => {
+    const t = await ScrapeTarget.findOneAndUpdate({ workspaceId: req.workspaceId, _id: req.params.id }, { $set: req.body }, { new: true });
+    if (!t) throw ApiError.notFound('Lead source not found');
+    return ok(res, t);
+  }),
 );
 scrapeRouter.get(
   '/jobs',

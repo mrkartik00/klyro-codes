@@ -6,6 +6,7 @@ import { withTransaction } from '../utils/transaction.js';
 import { writeAudit } from './audit.service.js';
 import { scoreLead } from './scoring.service.js';
 import { ApiError } from '../utils/ApiError.js';
+import { socialsFromLinks } from '../utils/socialLinks.js';
 
 /**
  * Persist enrichment results for a lead (website audit, verified email,
@@ -27,10 +28,15 @@ export async function applyEnrichment({ workspaceId, leadId, audit, email, email
       lead.auditId = auditDoc._id;
     }
 
-    if (companyType && org) {
-      org.companyType = companyType;
-      await org.save({ session });
+    // Social profiles found on the site become contact channels on the business.
+    if (org && audit?.socials && typeof audit.socials === 'object') {
+      const found = socialsFromLinks(audit.socials);
+      const current = org.socials?.toObject?.() ?? org.socials ?? {};
+      org.socials = { ...found, ...Object.fromEntries(Object.entries(current).filter(([, v]) => v)) };
     }
+
+    if (companyType && org) org.companyType = companyType;
+    if (org && org.isModified()) await org.save({ session });
 
     let contact = null;
     if (email) {

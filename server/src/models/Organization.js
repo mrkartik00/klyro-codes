@@ -17,6 +17,16 @@ const organizationSchema = new mongoose.Schema({
   lng: { type: Number },
   timezone: { type: String },
   companyType: { type: String, enum: COMPANY_TYPES, default: 'unknown' },
+  // Public profile links found on the website or added by hand.
+  socials: {
+    linkedin: String,
+    x: String,
+    instagram: String,
+    facebook: String,
+    youtube: String,
+    tiktok: String,
+    reddit: String,
+  },
 });
 organizationSchema.plugin(basePlugin, { softDelete: true });
 // Unique per workspace only when the key is actually present (a real string),

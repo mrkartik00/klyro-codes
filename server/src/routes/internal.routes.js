@@ -9,6 +9,7 @@ import { ingestBatch } from '../services/lead.service.js';
 import { applyEnrichment } from '../services/enrichment.service.js';
 import { claimSend, readySends, recordSendResult } from '../services/send.service.js';
 import { handleReply, resolveReplyEnrollment } from '../services/reply.service.js';
+import { scanAllReddit } from '../services/social.service.js';
 import { classifyReply } from '../services/drafting.service.js';
 import { dueSteps, draftStep, handleBounce } from '../services/pipeline.service.js';
 import { updateScrapeProgress } from '../services/scrape.service.js';
@@ -65,6 +66,16 @@ internalRouter.post(
   '/sends/claim',
   validateBody(z.object({ workspaceId: wsId, enrollmentId: z.string(), stepOrder: z.number().int() })),
   asyncHandler(async (req, res) => ok(res, await claimSend(req.body))),
+);
+
+// H9 — scheduled social listening (n8n every 30 min). Runs in the background.
+internalRouter.post(
+  '/social/reddit/scan',
+  validateBody(z.object({ workspaceId: wsId })),
+  asyncHandler(async (req, res) => {
+    scanAllReddit({ workspaceId: req.body.workspaceId }).catch(() => {});
+    return ok(res, { started: true });
+  }),
 );
 
 // A2 — steps due for drafting/sending. n8n polls this on a schedule.

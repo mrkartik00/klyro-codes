@@ -3,7 +3,10 @@ import { basePlugin } from './plugins/base.js';
 
 const scrapeTargetSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  country: { type: String, required: true },
+  // maps = Google Maps businesses; reddit = people asking for help (social listening)
+  source: { type: String, enum: ['maps', 'reddit'], default: 'maps', index: true },
+  communities: { type: [String], default: [] }, // reddit: subreddit names without r/
+  country: { type: String, default: 'US' },
   cities: { type: [String], default: [] },
   categories: { type: [String], default: [] },
   keywords: { type: [String], default: [] },
@@ -14,6 +17,8 @@ const scrapeTargetSchema = new mongoose.Schema({
     minReviews: { type: Number },
     hasWebsite: { type: Boolean }, // true = only with, false = only without
     excludeChains: { type: Boolean, default: true },
+    minIntent: { type: Number }, // reddit: 0-1, keep posts at/above this buying intent
+    maxAgeDays: { type: Number }, // reddit: ignore older posts
   },
   maxResults: { type: Number, default: 200 },
   schedule: { type: String, enum: ['once', 'daily', 'weekly'], default: 'once' },

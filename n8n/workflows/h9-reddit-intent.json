@@ -1,0 +1,90 @@
+{
+  "id": "KlyroH9Reddit001",
+  "name": "H9 — Reddit lead finder (every 30 min)",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none"
+  },
+  "nodes": [
+    {
+      "id": "s",
+      "name": "Every 30 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b",
+      "name": "Build scan request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: { method: 'POST', path: '/internal/social/reddit/scan', body: { workspaceId: $env.KLYRO_WORKSPACE_ID } } }];"
+      }
+    },
+    {
+      "id": "c",
+      "name": "Scan Reddit sources",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "KlyroApiSigner01",
+          "mode": "id"
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Every 30 min": {
+      "main": [
+        [
+          {
+            "node": "Build scan request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build scan request": {
+      "main": [
+        [
+          {
+            "node": "Scan Reddit sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "notes": "The API reads each active Reddit lead source (subreddits + keywords), scores buying intent with Gemini and saves good posts as leads with a drafted reply in Approvals. You post replies yourself."
+  }
+}

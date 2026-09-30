@@ -50,7 +50,7 @@ export function fillTemplate(text, vars) {
 }
 
 /** Produce a validated draft. Falls back to a template-based draft if AI fails. */
-export async function draftEmail({ business, audit, template, tone, vars: extraVars = {} }) {
+export async function draftEmail({ business, audit, template, tone, channel = 'email', vars: extraVars = {} }) {
   const vars = {
     company: business.name,
     city: business.city,
@@ -64,17 +64,20 @@ export async function draftEmail({ business, audit, template, tone, vars: extraV
     const check = checkDraft(out, { businessName: business.name, city: business.city });
     return check.ok ? out : { ...out, guardrailIssues: [...new Set([...(d.guardrailIssues ?? []), ...check.issues])] };
   };
-  return finish(await draftRaw({ business, audit, template, tone, hasPitch: Boolean(vars.pitchUrl) }));
+  const d = finish(await draftRaw({ business, audit, template, tone, channel, hasPitch: Boolean(vars.pitchUrl) }));
+  // LinkedIn connection notes max out at 300 characters.
+  if (channel === 'linkedin' && d.body.length > 300) d.body = `${d.body.slice(0, 297).replace(/\s+\S*$/, '')}…`;
+  return d;
 }
 
-async function draftRaw({ business, audit, template, tone, hasPitch }) {
+async function draftRaw({ business, audit, template, tone, channel, hasPitch }) {
   const facts = {
     businessName: business.name,
     city: business.city,
     category: business.category,
   };
   void facts;
-  const ai = await generateJson(draftPrompt({ business, audit, template, tone, hasPitch }));
+  const ai = await generateJson(draftPrompt({ business, audit, template, tone, hasPitch, channel }));
   if (ai?.subject && ai?.body) return { ...ai, source: 'ai' };
   // Deterministic fallback so the pipeline never stalls without AI: use the
   // template itself (placeholders are filled by the caller), else a safe line.
@@ -86,6 +89,14 @@ async function draftRaw({ business, audit, template, tone, hasPitch }) {
       body: template.body,
       personalizationNotes: 'template (AI unavailable)',
       source: 'template',
+    };
+  }
+  if (channel !== 'email') {
+    return {
+      subject: `${channel} message`,
+      body: `Hi {{firstName}}, I came across {{company}}${business.city ? ' in {{city}}' : ''} — noticed {{auditHighlight}}. I help local businesses with that at Klyro. Open to a quick chat?`,
+      personalizationNotes: 'fallback',
+      source: 'fallback',
     };
   }
   return {

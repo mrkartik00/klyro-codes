@@ -91,6 +91,7 @@ export async function draftStep({ workspaceId, enrollmentId, stepOrder, tone, ac
       audit: audit ? { issues: audit.issues, mobileScore: audit.mobileScore } : {},
       template: template?.variants?.[0],
       tone,
+      channel: step?.channel ?? 'email',
       vars: { firstName, pitchUrl },
     });
 

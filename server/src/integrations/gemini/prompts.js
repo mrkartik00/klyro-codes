@@ -1,4 +1,4 @@
-export function draftPrompt({ business, audit, template, tone = 'friendly, concise, professional', hasPitch = false }) {
+export function draftPrompt({ business, audit, template, tone = 'friendly, concise, professional', hasPitch = false, channel = 'email' }) {
   // Only business (non-personal) facts are sent to the model.
   const facts = {
     businessName: business.name,
@@ -9,8 +9,14 @@ export function draftPrompt({ business, audit, template, tone = 'friendly, conci
     websiteIssues: audit?.issues ?? [],
     mobileScore: audit?.mobileScore ?? null,
   };
-  return `You write short B2B cold emails for Klyro, a web/app development studio.
-Tone: ${tone}. Max 120 words. One clear call to action (reply or book a call).
+  const format =
+    channel === 'linkedin'
+      ? 'a LinkedIn connection note: max 280 characters, no subject needed (use "LinkedIn note"), no links'
+      : channel === 'x' || channel === 'instagram'
+        ? `a short, friendly ${channel === 'x' ? 'X (Twitter) DM' : 'Instagram DM'}: max 60 words, no links, no subject needed`
+        : 'a short B2B cold email: max 120 words, one clear call to action (reply or book a call)';
+  return `You write outreach for Klyro, a web/app development studio. Write ${format}.
+Tone: ${tone}.
 Use ONLY these facts; do not invent details:
 ${JSON.stringify(facts, null, 2)}
 

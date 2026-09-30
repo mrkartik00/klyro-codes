@@ -70,7 +70,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "// Drafting happens in the API (template + Gemini); n8n only schedules it.\nconst rows = $input.first().json?.data || [];\nreturn rows.filter((r) => r.channel === 'email' || !r.channel).map((r) => ({ json: {\n  method: 'POST', path: '/internal/approvals',\n  idempotencyKey: `draft-${r.enrollmentId}-${r.stepOrder}`,\n  body: { workspaceId: $env.KLYRO_WORKSPACE_ID, enrollmentId: String(r.enrollmentId), stepOrder: r.stepOrder },\n} }));"
+        "jsCode": "// Drafting happens in the API (template + Gemini); n8n only schedules it.\nconst rows = $input.first().json?.data || [];\n// All channels: email drafts get sent after approval; LinkedIn/X drafts\n// become manual tasks in Approvals.\nreturn rows.map((r) => ({ json: {\n  method: 'POST', path: '/internal/approvals',\n  idempotencyKey: `draft-${r.enrollmentId}-${r.stepOrder}`,\n  body: { workspaceId: $env.KLYRO_WORKSPACE_ID, enrollmentId: String(r.enrollmentId), stepOrder: r.stepOrder },\n} }));"
       }
     },
     {

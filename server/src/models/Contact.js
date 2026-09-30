@@ -10,6 +10,20 @@ const contactSchema = new mongoose.Schema({
   phone: { type: String, default: null },
   title: { type: String },
   linkedinUrl: { type: String },
+  // Person-level profiles/handles, e.g. { reddit: 'u/jane', x: '@jane' } + URLs.
+  socials: {
+    linkedin: String,
+    x: String,
+    reddit: String,
+    instagram: String,
+    facebook: String,
+  },
+  handles: {
+    reddit: String,
+    x: String,
+    linkedin: String,
+    instagram: String,
+  },
 });
 contactSchema.plugin(basePlugin, { softDelete: true });
 // Partial, not sparse: sparse still indexes explicit nulls, so contacts without

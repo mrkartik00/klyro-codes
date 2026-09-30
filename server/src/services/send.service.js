@@ -28,8 +28,17 @@ export function unsubscribeUrl(workspaceId, email) {
 export async function readySends({ workspaceId, limit = 20 }) {
   const approvals = await Approval.find({ workspaceId, status: 'approved', channel: 'email' })
     .sort({ decidedAt: 1 })
-    .limit(limit * 5)
+    .limit(limit * 10)
     .lean();
+  // With few mailboxes the daily cap is scarce: send the most relevant
+  // (highest-scoring) leads first, oldest approval breaking ties.
+  const scores = Object.fromEntries(
+    (await Lead.find({ workspaceId, _id: { $in: approvals.map((a) => a.leadId).filter(Boolean) } }).select('score').lean()).map((l) => [
+      String(l._id),
+      l.score ?? 0,
+    ]),
+  );
+  approvals.sort((a, b) => (scores[String(b.leadId)] ?? 0) - (scores[String(a.leadId)] ?? 0));
   const now = new Date();
   const out = [];
   for (const a of approvals) {
@@ -147,6 +156,26 @@ export async function claimSend({ workspaceId, enrollmentId, stepOrder }) {
   });
 }
 
+/**
+ * Move an enrollment past `fromStep`: schedule the next step in the lead's
+ * timezone (by its business-day delay) or complete the sequence. Used after an
+ * email is sent and after a manual LinkedIn/X/Reddit task is marked done.
+ */
+export async function advanceEnrollment({ workspaceId, enrollment, fromStep }, session) {
+  if (!enrollment || enrollment.status !== 'active' || enrollment.currentStep !== fromStep) return enrollment;
+  enrollment.currentStep = fromStep + 1;
+  const nextStep = await SequenceStep.findOne({ workspaceId, campaignId: enrollment.campaignId, order: enrollment.currentStep }).session(session);
+  if (nextStep) {
+    const lead = await Lead.findOne({ workspaceId, _id: enrollment.leadId }).session(session);
+    enrollment.nextDueAt = addBusinessDays(new Date(), nextStep.delayDays, lead?.timezone || 'UTC');
+  } else {
+    enrollment.nextDueAt = null;
+    enrollment.status = 'completed';
+  }
+  await enrollment.save({ session });
+  return enrollment;
+}
+
 /** Record the outcome of a send. On success, advance the enrollment's step. */
 export async function recordSendResult({
   workspaceId,
@@ -178,21 +207,7 @@ export async function recordSendResult({
         // Advance to the next sequence step. If there is a next step, schedule
         // nextDueAt in the lead's timezone by that step's business-day delay;
         // otherwise the sequence is complete.
-        enrollment.currentStep = message.stepOrder + 1;
-        const nextStep = await SequenceStep.findOne({
-          workspaceId,
-          campaignId: enrollment.campaignId,
-          order: enrollment.currentStep,
-        }).session(session);
-        if (nextStep) {
-          const lead = await Lead.findOne({ workspaceId, _id: enrollment.leadId }).session(session);
-          const tz = lead?.timezone || 'UTC';
-          enrollment.nextDueAt = addBusinessDays(new Date(), nextStep.delayDays, tz);
-        } else {
-          enrollment.nextDueAt = null;
-          enrollment.status = 'completed';
-        }
-        await enrollment.save({ session });
+        await advanceEnrollment({ workspaceId, enrollment, fromStep: message.stepOrder }, session);
       }
       // Record a 'sent' analytics event in the same txn.
       await recordEvent(

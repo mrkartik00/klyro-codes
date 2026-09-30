@@ -7,9 +7,15 @@ export const CHANNELS = Object.freeze([
   'email',
   'reddit',
   'linkedin',
+  'x',
+  'instagram',
   'discord',
   'portal_chat',
 ]);
+
+// Where a lead was found. Social ones are contacted by hand (manual channels).
+export const LEAD_PLATFORMS = Object.freeze(['maps', 'reddit', 'linkedin', 'x', 'instagram', 'facebook', 'inbound', 'csv', 'manual']);
+export const MANUAL_CHANNELS = Object.freeze(['reddit', 'linkedin', 'x', 'instagram']);
 
 export const CURRENCIES = Object.freeze(['USD', 'GBP', 'INR']);
 
