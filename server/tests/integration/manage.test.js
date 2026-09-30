@@ -80,6 +80,12 @@ describe('admin full control (/admin/manage, /admin/scrape)', () => {
     expect((await ScrapeTarget.findById(t._id).lean()).deletedAt).toBeTruthy();
   });
 
+  it('keeps per-source filters when saving a search', async () => {
+    const res = await api('post', '/scrape/targets').send({ name: 'RFPs', source: 'brave', keywords: ['rfp website'], filters: { sites: ['*'], freshness: 'pm', maxQueries: 5, minBudgetUsd: 300 } });
+    expect(res.status).toBe(201);
+    expect((await ScrapeTarget.findById(res.body.data._id).lean()).filters).toMatchObject({ sites: ['*'], freshness: 'pm', maxQueries: 5, minBudgetUsd: 300 });
+  });
+
   it('closes runs that stopped reporting', async () => {
     const job = await ScrapeJob.create({ workspaceId: ws._id, status: 'running' });
     await ScrapeJob.collection.updateOne({ _id: job._id }, { $set: { updatedAt: new Date(Date.now() - 3600_000) } });

@@ -22,6 +22,16 @@ const scrapeTargetSchema = new mongoose.Schema({
     minIntent: { type: Number }, // reddit: 0-1, keep posts at/above this buying intent
     maxAgeDays: { type: Number }, // reddit: ignore older posts
     cursor: { type: Number }, // reddit: next subreddit to scan (round-robin)
+    // Other sources (see services/intent.service.js).
+    maxChecks: { type: Number }, // AI checks per run
+    minBudgetUsd: { type: Number }, // freelancer
+    maxBids: { type: Number }, // freelancer
+    sites: { type: [String], default: undefined }, // brave: site filters, ['*'] = whole web
+    freshness: { type: String }, // brave: pd | pw | pm | py
+    maxQueries: { type: Number }, // brave: searches per run
+    sinceId: { type: String }, // x: newest post already read
+    days: { type: Number }, // companies house: incorporated in the last N days
+    sicCodes: { type: [String], default: undefined }, // companies house
   },
   maxResults: { type: Number, default: 200 },
   schedule: { type: String, enum: ['once', 'daily', 'weekly'], default: 'once' },
