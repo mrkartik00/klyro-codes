@@ -18,7 +18,7 @@ const stageVariant = (stage) => {
 const EMAIL_TONE = { valid: 'success', risky: 'warning', invalid: 'destructive' };
 const PAGE = 25;
 const EMPTY_LEAD = { links: '', name: '', domain: '', email: '', phone: '', country: 'US', category: '', contactName: '', notes: '' };
-const PLATFORM_LABEL = { maps: 'Google Maps', reddit: 'Reddit', linkedin: 'LinkedIn', x: 'X', instagram: 'Instagram', facebook: 'Facebook', inbound: 'Website form', csv: 'CSV', import: 'CSV', manual: 'Manual' };
+import { PLATFORM_LABEL } from '../lib/sources.js';
 
 /** Flatten a populated lead row for display. */
 export function leadRow(l) {

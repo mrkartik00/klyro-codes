@@ -8,6 +8,7 @@ import Login from '../pages/Login.jsx';
 const Dashboard = lazy(() => import('../pages/Dashboard.jsx'));
 const Leads = lazy(() => import('../pages/Leads.jsx'));
 const Schedules = lazy(() => import('../pages/Schedules.jsx'));
+const Clip = lazy(() => import('../pages/Clip.jsx'));
 const LeadDetail = lazy(() => import('../pages/LeadDetail.jsx'));
 const Targets = lazy(() => import('../pages/Targets.jsx'));
 const Campaigns = lazy(() => import('../pages/Campaigns.jsx'));
@@ -62,6 +63,7 @@ export function AppRoutes() {
         <Route path="/leads/:id" element={<Page><LeadDetail /></Page>} />
         <Route path="/targets" element={<Page><Targets /></Page>} />
         <Route path="/schedules" element={<Page><Schedules /></Page>} />
+        <Route path="/clip" element={<Page><Clip /></Page>} />
         <Route path="/campaigns" element={<Page><Campaigns /></Page>} />
         <Route path="/campaigns/:id" element={<Page><CampaignDetail /></Page>} />
         <Route path="/templates" element={<Page><Templates /></Page>} />

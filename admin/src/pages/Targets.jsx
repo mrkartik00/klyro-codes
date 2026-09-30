@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Plus, Play, Upload, Pencil, Pause, Trash2, Square, ExternalLink, CalendarClock } from 'lucide-react';
 import api, { unwrap } from '../lib/api.js';
+import { SOURCES, SOURCE, srcOf, isPostSource } from '../lib/sources.js';
 import { useToast } from '../hooks/useToast.jsx';
 import { formatDate } from '../lib/format.js';
 import { PageHeader } from '../components/PageHeader.jsx';
@@ -20,6 +21,15 @@ const splitList = (s) =>
     .map((x) => x.trim())
     .filter(Boolean);
 
+/** One-line "where" for a saved search. */
+export function whereText(t) {
+  const s = srcOf(t);
+  if (s === 'reddit') return (t.communities || []).map((c) => `r/${c}`).join(', ');
+  if (s === 'maps' || s === 'companieshouse') return `${(t.cities || []).join(', ') || 'Whole country'} · ${t.country || 'GB'}`;
+  if (s === 'brave') return (t.filters?.sites || ['linkedin.com/posts', 'x.com']).join(', ');
+  return SOURCE[s]?.label || s;
+}
+
 /** Build the API payload from the simple form. */
 export function targetPayload(form) {
   if (form.source === 'reddit') {
@@ -33,6 +43,23 @@ export function targetPayload(form) {
       keywords,
       maxResults: Math.min(Math.max(Number(form.maxResults) || 50, 1), 500),
       filters: { minIntent: Math.min(Math.max(Number(form.minIntent) || 55, 10), 95) / 100, maxAgeDays: Math.min(Math.max(Number(form.maxAgeDays) || 14, 1), 90) },
+    };
+  }
+  if (!['maps', 'reddit'].includes(form.source)) {
+    const keywords = splitList(form.keywords);
+    const filters = { minIntent: Math.min(Math.max(Number(form.minIntent) || 55, 10), 95) / 100, maxAgeDays: Math.min(Math.max(Number(form.maxAgeDays) || 3, 1), 90) };
+    if (form.source === 'freelancer') Object.assign(filters, { minBudgetUsd: Number(form.minBudgetUsd) || 0, maxBids: Number(form.maxBids) || 80 });
+    if (form.source === 'brave') filters.sites = splitList(form.sites);
+    if (form.source === 'companieshouse') Object.assign(filters, { days: Number(form.maxAgeDays) || 7 });
+    return {
+      source: form.source,
+      ...(form.group?.trim() ? { group: form.group.trim() } : {}),
+      name: form.name.trim() || `${SOURCE[form.source]?.label}: ${keywords.slice(0, 2).join(', ') || 'default'}`,
+      keywords,
+      cities: splitList(form.cities),
+      country: form.source === 'companieshouse' ? 'GB' : form.country,
+      maxResults: Math.min(Math.max(Number(form.maxResults) || 25, 1), 500),
+      filters,
     };
   }
   const categories = splitList(form.categories);
@@ -69,7 +96,10 @@ export function formFromTarget(t) {
     communities: (t.communities || []).join(', '),
     keywords: (t.keywords || []).join(', '),
     minIntent: f.minIntent != null ? Math.round(f.minIntent * 100) : 55,
-    maxAgeDays: f.maxAgeDays ?? 14,
+    maxAgeDays: f.maxAgeDays ?? f.days ?? 14,
+    minBudgetUsd: f.minBudgetUsd ?? 150,
+    maxBids: f.maxBids ?? 80,
+    sites: (f.sites || ['linkedin.com/posts', 'x.com']).join(', '),
   };
 }
 
@@ -137,9 +167,7 @@ function RunDetail({ jobId, onClose }) {
               </p>
               <p className="mt-1">
                 <span className="font-medium text-foreground">Where:</span>{' '}
-                {target.source === 'reddit'
-                  ? (target.communities || []).map((c) => `r/${c}`).join(', ')
-                  : `${(target.cities || []).join(', ') || 'Whole country'} · ${target.country}`}
+                {whereText(target)}
               </p>
             </div>
           )}
@@ -193,7 +221,16 @@ function SearchDetail({ id, onClose, onRun, onEdit, onOpenRun }) {
   const { target: t, jobs = [], totals, schedules = [] } = q.data || {};
   const f = t?.filters || {};
   const rows = t
-    ? t.source === 'reddit'
+    ? !['maps', 'reddit'].includes(srcOf(t))
+      ? [
+          ['Source', SOURCE[srcOf(t)]?.label],
+          ['Phrases', (t.keywords || []).join(', ') || 'defaults'],
+          ...(srcOf(t) === 'freelancer' ? [['Min budget', `$${f.minBudgetUsd ?? 150}`], ['Max bids so far', f.maxBids ?? 80]] : []),
+          ...(srcOf(t) === 'brave' ? [['Sites', (f.sites || ['linkedin.com/posts', 'x.com']).join(', ')]] : []),
+          ['Min buying intent', f.minIntent != null ? `${Math.round(f.minIntent * 100)}%` : '55%'],
+          ['Items from last', `${f.maxAgeDays ?? f.days ?? 3} days`],
+        ]
+      : t.source === 'reddit'
       ? [
           ['Subreddits', (t.communities || []).map((c) => `r/${c}`).join(', ')],
           ['Phrases', (t.keywords || []).join(', ') || 'Hiring boards: [Hiring] posts only'],
@@ -216,7 +253,7 @@ function SearchDetail({ id, onClose, onRun, onEdit, onOpenRun }) {
       ) : (
         <div className="space-y-5 text-sm">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={t.source === 'reddit' ? 'warning' : 'primary'}>{t.source === 'reddit' ? 'Reddit' : 'Google Maps'}</Badge>
+            <Badge variant={SOURCE[srcOf(t)]?.tone || 'default'}>{SOURCE[srcOf(t)]?.label}</Badge>
             {t.group && <Badge>{t.group}</Badge>}
             {t.active === false && <Badge>Paused</Badge>}
             <div className="ml-auto flex gap-2">
@@ -339,11 +376,13 @@ export default function Targets() {
       return rows.some((j) => RUNNING.has(j.status)) ? 5000 : false;
     },
   });
+  const srcStatus = useQuery({ queryKey: ['clip-sources'], queryFn: () => unwrap(api.get('/admin/clip/sources')), staleTime: 60000 });
+  const sourceReady = Object.fromEntries((srcStatus.data?.sources || []).map((x) => [x.id, x.ready]));
+  const sourceMissing = Object.fromEntries((srcStatus.data?.sources || []).map((x) => [x.id, x.missing]));
   const targetRows = useMemo(() => (Array.isArray(targets.data) ? targets.data : targets.data?.items || []), [targets.data]);
   const jobRows = jobs.data?.data || [];
   const jobPages = Math.max(1, jobs.data?.meta?.pages ?? 1);
   const targetById = Object.fromEntries(targetRows.map((t) => [String(t._id || t.id), t]));
-  const srcOf = (t) => (t?.source === 'reddit' ? 'reddit' : 'maps');
   const shown = useMemo(() => {
     const needle = fText.trim().toLowerCase();
     return targetRows
@@ -357,7 +396,7 @@ export default function Targets() {
       )
       .sort((a, b) => srcOf(a).localeCompare(srcOf(b)) || (a.group || 'Ungrouped').localeCompare(b.group || 'Ungrouped') || a.name.localeCompare(b.name));
   }, [targetRows, fSource, fGroup, fStatus, fText]);
-  const counts = { all: targetRows.length, maps: targetRows.filter((t) => srcOf(t) === 'maps').length, reddit: targetRows.filter((t) => srcOf(t) === 'reddit').length };
+  const counts = { all: targetRows.length, ...Object.fromEntries(SOURCES.map((x) => [x.id, targetRows.filter((t) => srcOf(t) === x.id).length])) };
 
   const create = useMutation({
     mutationFn: (body) => unwrap(editId ? api.patch(`/admin/scrape/targets/${editId}`, body) : api.post('/admin/scrape/targets', body)),
@@ -421,7 +460,7 @@ export default function Targets() {
 
   const payload = targetPayload(form);
   // Hiring boards need no phrases (they're read in full), so only subreddits are required.
-  const canSave = form.source === 'reddit' ? payload.communities.length > 0 : payload.categories.length > 0;
+  const canSave = form.source === 'reddit' ? payload.communities.length > 0 : form.source === 'maps' ? payload.categories.length > 0 : true;
 
   const PER_PAGE = 15;
   const pageRows = shown.slice((sPage - 1) * PER_PAGE, sPage * PER_PAGE);
@@ -432,9 +471,9 @@ export default function Targets() {
     setSPage(1);
     setSelected(new Set());
   };
-  const nav = ['maps', 'reddit'].map((src) => ({
+  const nav = SOURCES.filter((x) => counts[x.id]).map(({ id: src, label }) => ({
     src,
-    label: src === 'reddit' ? 'Reddit' : 'Google Maps',
+    label,
     total: counts[src],
     groups: [...new Set(targetRows.filter((t) => srcOf(t) === src).map((t) => t.group || 'Ungrouped'))]
       .sort()
@@ -607,7 +646,7 @@ export default function Targets() {
             <Card className="overflow-hidden">
               <div className="flex items-center justify-between border-b border-border px-4 py-2.5 text-sm">
                 <span className="font-semibold">
-                  {fGroup || (fSource ? (fSource === 'reddit' ? 'Reddit' : 'Google Maps') : 'All searches')}
+                  {fGroup || (fSource ? SOURCE[fSource]?.label : 'All searches')}
                   <span className="ml-2 font-normal text-muted-foreground">{shown.length} search{shown.length === 1 ? '' : 'es'}</span>
                 </span>
                 <span className="text-xs text-muted-foreground">Click a search for details</span>
@@ -642,15 +681,15 @@ export default function Targets() {
                   </li>
                   {pageRows.map((t) => {
                     const id = idOf(t);
-                    const what = [...(t.categories || []), ...(t.keywords || [])].join(', ') || (t.source === 'reddit' ? '[Hiring] posts' : '—');
-                    const where = t.source === 'reddit' ? (t.communities || []).map((c) => `r/${c}`).join(', ') : `${(t.cities || []).join(', ') || 'Whole country'} · ${t.country}`;
+                    const what = [...(t.categories || []), ...(t.keywords || [])].join(', ') || (t.source === 'reddit' ? '[Hiring] posts' : isPostSource(srcOf(t)) ? 'default buyer phrases' : '—');
+                    const where = whereText(t);
                     return (
                       <li key={id} className={`flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 ${t.active === false ? 'opacity-60' : ''}`}>
                         <input type="checkbox" className="size-4" aria-label={`Select ${t.name}`} checked={selected.has(id)} onChange={() => toggleSel(id)} />
                         <button type="button" onClick={() => setDetailId(id)} className="min-w-0 flex-1 text-left">
                           <span className="flex items-center gap-2">
                             <span className="truncate font-medium hover:underline">{t.name}</span>
-                            {!fSource && <Badge variant={t.source === 'reddit' ? 'warning' : 'primary'}>{t.source === 'reddit' ? 'Reddit' : 'Maps'}</Badge>}
+                            {!fSource && <Badge variant={SOURCE[srcOf(t)]?.tone || 'default'}>{SOURCE[srcOf(t)]?.short}</Badge>}
                             {t.active === false && <Badge>Paused</Badge>}
                           </span>
                           <span className="block truncate text-xs text-muted-foreground">
@@ -778,7 +817,7 @@ export default function Targets() {
                           {j.scheduleId && <span className="ml-2 text-xs text-muted-foreground">(scheduled)</span>}
                         </td>
                         <td className="px-4 py-3">
-                          <Badge variant={srcOf(t) === 'reddit' ? 'warning' : 'primary'}>{srcOf(t) === 'reddit' ? 'Reddit' : 'Maps'}</Badge>
+                          <Badge variant={SOURCE[srcOf(t)]?.tone || 'default'}>{SOURCE[srcOf(t)]?.short || 'Deleted'}</Badge>
                         </td>
                         <td className="px-4 py-3">
                           <Badge variant={JOB_TONE[j.status] || 'default'}>{j.status === 'enriched' ? 'done' : j.status}</Badge>
@@ -833,11 +872,8 @@ export default function Targets() {
         >
           <fieldset>
             <legend className="mb-2 text-sm font-medium">Where to look</legend>
-            <div className="grid grid-cols-2 gap-2" role="radiogroup">
-              {[
-                ['maps', 'Google Maps', 'Local businesses by type & city'],
-                ['reddit', 'Reddit', 'People hiring someone to build a website or app'],
-              ].map(([v, label, hint]) => (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="radiogroup">
+              {SOURCES.map(({ id: v, label, hint }) => (
                 <label
                   key={v}
                   className={`cursor-pointer rounded-lg border p-3 text-sm transition-colors ${form.source === v ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted'}`}
@@ -845,12 +881,67 @@ export default function Targets() {
                   <input type="radio" name="source" value={v} checked={form.source === v} onChange={set('source')} className="sr-only" />
                   <span className="block font-medium">{label}</span>
                   <span className="block text-xs text-muted-foreground">{hint}</span>
+                  {sourceReady[v] === false && <span className="mt-1 block text-xs text-amber-400">Needs setup: {(sourceMissing[v] || []).join(', ')}</span>}
                 </label>
               ))}
             </div>
           </fieldset>
 
-          {form.source === 'reddit' ? (
+          {!['maps', 'reddit'].includes(form.source) ? (
+            <>
+              {form.source !== 'companieshouse' && form.source !== 'tenders' && (
+                <div>
+                  <Label htmlFor="kw2">Phrases buyers use</Label>
+                  <Textarea id="kw2" rows={2} value={form.keywords} onChange={set('keywords')} placeholder="leave empty for the default buyer phrases" />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {form.source === 'freelancer' ? 'Project search words, e.g. website, mobile app, shopify.' : 'Exact phrases, comma-separated, e.g. looking for a developer, need an app built.'}
+                  </p>
+                </div>
+              )}
+              {form.source === 'freelancer' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="minBudget">Min budget (USD)</Label>
+                    <Input id="minBudget" type="number" min="0" value={form.minBudgetUsd ?? 150} onChange={set('minBudgetUsd')} />
+                  </div>
+                  <div>
+                    <Label htmlFor="maxBids">Skip projects with more bids than</Label>
+                    <Input id="maxBids" type="number" min="1" value={form.maxBids ?? 80} onChange={set('maxBids')} />
+                  </div>
+                </div>
+              )}
+              {form.source === 'brave' && (
+                <div>
+                  <Label htmlFor="sites">Sites to search</Label>
+                  <Input id="sites" value={form.sites ?? 'linkedin.com/posts, x.com'} onChange={set('sites')} />
+                  <p className="mt-1 text-xs text-muted-foreground">Also works: threads.net, facebook.com/groups, indiehackers.com, quora.com</p>
+                </div>
+              )}
+              {form.source === 'companieshouse' && (
+                <div>
+                  <Label htmlFor="chcity">Town / city (optional)</Label>
+                  <Input id="chcity" value={form.cities} onChange={set('cities')} placeholder="Manchester" />
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {form.source !== 'companieshouse' && (
+                  <div>
+                    <Label htmlFor="minIntent2">Min buying intent %</Label>
+                    <Input id="minIntent2" type="number" min="10" max="95" value={form.minIntent} onChange={set('minIntent')} />
+                  </div>
+                )}
+                <div>
+                  <Label htmlFor="age2">{form.source === 'companieshouse' ? 'Incorporated in last (days)' : 'Items from last (days)'}</Label>
+                  <Input id="age2" type="number" min="1" max="90" value={form.maxAgeDays} onChange={set('maxAgeDays')} />
+                </div>
+                <div>
+                  <Label htmlFor="max2">Max leads per run</Label>
+                  <Input id="max2" type="number" min="1" max="500" value={form.maxResults} onChange={set('maxResults')} />
+                </div>
+              </div>
+              <p className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">{SOURCE[form.source]?.hint}. The AI keeps only real buyers and drafts a reply for Approvals — nothing is posted for you.</p>
+            </>
+          ) : form.source === 'reddit' ? (
             <>
               <div>
                 <Label htmlFor="keywords">Phrases buyers use</Label>

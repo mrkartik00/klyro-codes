@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Play, Pause, Pencil, Trash2, CalendarClock } from 'lucide-react';
 import api, { unwrap } from '../lib/api.js';
+import { SOURCES, SOURCE, srcOf } from '../lib/sources.js';
 import { useToast } from '../hooks/useToast.jsx';
 import { formatDate } from '../lib/format.js';
 import { PageHeader } from '../components/PageHeader.jsx';
@@ -141,13 +142,13 @@ function ScheduleForm({ open, initial, editId, targets, onClose }) {
     onError: (e) => toast.error(e.message || 'Save failed'),
   });
 
-  const srcOf = (t) => (t.source === 'reddit' ? 'reddit' : 'maps');
+  const matchSrc = (t) => f.source === 'any' || srcOf(t) === f.source || (f.source === 'social' && srcOf(t) !== 'maps');
   const groups = useMemo(
-    () => [...new Set(targets.filter((t) => f.source === 'any' || srcOf(t) === f.source).map((t) => t.group).filter(Boolean))].sort(),
+    () => [...new Set(targets.filter(matchSrc).map((t) => t.group).filter(Boolean))].sort(),
     [targets, f.source],
   );
   const pickable = targets
-    .filter((t) => f.source === 'any' || srcOf(t) === f.source)
+    .filter(matchSrc)
     .filter((t) => !pickFilter || `${t.name} ${t.group}`.toLowerCase().includes(pickFilter.toLowerCase()))
     .sort((a, b) => (a.group || '').localeCompare(b.group || '') || a.name.localeCompare(b.name));
   const toggleIn = (key, v) => setF((x) => ({ ...x, [key]: x[key].includes(v) ? x[key].filter((y) => y !== v) : [...x[key], v] }));
@@ -254,9 +255,13 @@ function ScheduleForm({ open, initial, editId, targets, onClose }) {
             <div>
               <Label htmlFor="s-source">Source</Label>
               <Select id="s-source" value={f.source} onChange={(e) => setF((x) => ({ ...x, source: e.target.value, groups: [], targetIds: [] }))}>
-                <option value="maps">Google Maps</option>
-                <option value="reddit">Reddit</option>
-                <option value="any">Both</option>
+                {SOURCES.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.label}
+                  </option>
+                ))}
+                <option value="social">All except Google Maps</option>
+                <option value="any">Everything</option>
               </Select>
             </div>
             <div>
@@ -535,7 +540,7 @@ export default function Schedules() {
                           {s.name}
                         </button>
                         <div className="mt-1 flex flex-wrap gap-1">
-                          <Badge variant={s.source === 'reddit' ? 'warning' : 'primary'}>{s.source === 'reddit' ? 'Reddit' : s.source === 'maps' ? 'Google Maps' : 'Both'}</Badge>
+                          <Badge variant={SOURCE[s.source]?.tone || 'default'}>{SOURCE[s.source]?.label || (s.source === 'social' ? 'All except Maps' : 'Everything')}</Badge>
                           {!s.enabled && <Badge>Paused</Badge>}
                           {running(s) && <Badge variant="warning">Running</Badge>}
                         </div>
