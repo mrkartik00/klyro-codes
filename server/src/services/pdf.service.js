@@ -35,6 +35,9 @@ function header(doc, business, title) {
   doc.fontSize(10).fillColor('#666');
   if (business?.address) doc.text(business.address);
   if (business?.email) doc.text(business.email);
+  if (business?.phone) doc.text(business.phone);
+  if (business?.website) doc.text(business.website);
+  if (business?.taxId) doc.text(`Tax ID: ${business.taxId}`);
   doc.moveDown();
   doc.fontSize(16).fillColor('#111').text(title);
   doc.moveDown();
