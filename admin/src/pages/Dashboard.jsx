@@ -9,6 +9,7 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { Link } from 'react-router-dom';
+import { AlertTriangle } from 'lucide-react';
 import api, { unwrap } from '../lib/api.js';
 import { formatMoney } from '../lib/format.js';
 import { PageHeader } from '../components/PageHeader.jsx';
