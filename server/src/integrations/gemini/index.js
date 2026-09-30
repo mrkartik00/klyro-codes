@@ -15,11 +15,42 @@ const URL = (model) => `https://generativelanguage.googleapis.com/v1beta/models/
  * any failure so callers can fall back to a safe default (e.g. needs_review).
  * Data minimisation is the caller's job (strip PII before calling).
  */
+// A model that answered 429 (quota) is skipped for a while instead of being
+// retried on every call; the free tier also has a per-minute limit, so calls
+// are spaced out.
+const coolUntil = new Map();
+const MIN_GAP_MS = 4200; // ~14 requests/minute
+let lastCall = 0;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function pace() {
+  const wait = lastCall + MIN_GAP_MS - Date.now();
+  lastCall = Math.max(Date.now(), lastCall + MIN_GAP_MS);
+  if (wait > 0) await sleep(wait);
+}
+
 export async function generateJson(prompt, { model = MODEL } = {}) {
-  const first = await generateJsonWith(prompt, model);
-  if (first.ok || !first.fallback || model === FALLBACK_MODEL) return first.value;
-  const second = await generateJsonWith(prompt, FALLBACK_MODEL);
-  return second.value;
+  const models = [...new Set([model, FALLBACK_MODEL])];
+  for (const m of models) {
+    if ((coolUntil.get(m) || 0) > Date.now()) continue;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await pace();
+      const r = await generateJsonWith(prompt, m);
+      if (r.ok) return r.value;
+      if (r.status === 429) {
+        // Out of daily quota on the main model: skip it for 30 min. On the
+        // last model, it's usually the per-minute limit, so wait and retry.
+        if (m !== models[models.length - 1]) {
+          coolUntil.set(m, Date.now() + 30 * 60 * 1000);
+          break;
+        }
+        await sleep(15000 * (attempt + 1));
+        continue;
+      }
+      if (!r.fallback) return r.value;
+      break;
+    }
+  }
+  return null;
 }
 
 async function generateJsonWith(prompt, model) {
@@ -47,7 +78,7 @@ async function generateJsonWith(prompt, model) {
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       logger.error({ status: res.status, model, detail: detail.slice(0, 200) }, 'Gemini request failed');
-      return { ok: false, value: null, fallback: [404, 429, 500, 503].includes(res.status) };
+      return { ok: false, value: null, status: res.status, fallback: [404, 429, 500, 503].includes(res.status) };
     }
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;

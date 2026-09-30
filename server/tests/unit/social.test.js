@@ -83,3 +83,15 @@ describe('hiring boards judge by title', () => {
     ).toBe(false);
   });
 });
+
+describe('hiring boards need a building role in the title', () => {
+  it.each([
+    ['[Hiring] SEO Specialist (Contract, Remote) – WordPress Sites for Home Service', false],
+    ['[HIRING] $5 to screen record using my website', false],
+    ['[HIRING] Marketer for my android app $150', false],
+    ['[HIRING] Simple landing page for an AI automation project — 50€ budget', true],
+    ['[Hiring] Flutter developer to build a booking app', true],
+  ])('%s → %s', (title, expected) => {
+    expect(looksLikeBuyer(post({ title }, { community: 'forhire' }))).toBe(expected);
+  });
+});

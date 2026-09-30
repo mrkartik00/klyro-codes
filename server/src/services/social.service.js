@@ -29,6 +29,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const BUILD_RE =
   /\b(website|web ?site|web ?app|webapp|landing page|mobile app|android( app)?|ios( app)?|iphone app|ipad app|react native|flutter|app developer|app development|app dev|web developer|web development|web dev|full.?stack|shopify|woocommerce|wordpress|webflow|e-?commerce|online store|booking (system|site|app)|mvp|saas|customer portal|dashboard)\b|\b(an?|my|our|the) ([a-z-]+ ){0,2}apps?\b|\bapps? (like|for)\b/i;
 
+// On hiring boards the title must ask for building work, not e.g. "SEO
+// specialist for WordPress sites" or "$5 to screen record my website".
+export const BUILD_ROLE_RE =
+  /\b(developer|dev|devs|programmer|coder|engineer|web designer|designer|build|built|building|create|creating|make|making|develop|developing|redesign|rebuild|landing page|mvp|full.?stack|front.?end|back.?end)\b/i;
+
 // Someone who wants to PAY someone else to build it.
 export const HIRE_RE =
   /(\[hiring\]|\[task\]|\[paid\]|\b(hiring|to hire|want to hire|looking to hire|looking for (a|an|someone|developers?|an? agency|freelancers?|a dev|a team)|need (a|an|someone|developers?|help building|help to build|it built|this built)|seeking (a|an)? ?(developer|agency|freelancer)|recommend (a|an)? ?(developer|agency|freelancer|dev shop)|who can (build|make|develop)|anyone (who can|able to) (build|make|develop)|quote (for|to) (build|develop|make)|how much (would|does|to|will) (it )?cost to (build|make|develop)|paying|will pay|dev shop|development (agency|company|partner)|outsourc(e|ing))\b)/i;
@@ -220,12 +225,12 @@ export function looksLikeBuyer(post, { maxAgeDays = 14, phrases = [] } = {}) {
   if (board) {
     // On hiring boards the title says who is hiring what; the body is often a
     // company description ("our agency…") that must not disqualify the post.
-    return board.test(post.title) && BUILD_RE.test(post.title) && !SELLER_RE.test(post.title);
+    return board.test(post.title) && BUILD_RE.test(post.title) && BUILD_ROLE_RE.test(post.title) && !SELLER_RE.test(post.title);
   }
   if (SELLER_RE.test(text)) return false;
   if (!BUILD_RE.test(text)) return false;
-  const lower = text.toLowerCase();
-  return HIRE_RE.test(text) || phrases.some((p) => p && lower.includes(p.toLowerCase()));
+  void phrases; // phrases steer the search; the hire signal must still be present
+  return HIRE_RE.test(text);
 }
 
 /** Keyword score, used only when Gemini is unavailable. Strict by design. */
@@ -465,6 +470,12 @@ export async function runRedditTarget({ workspaceId, target, job }) {
           }
           found += 1;
           const q = await qualify(post);
+          if (!q.ai && !HIRING_BOARDS[String(post.community || '').toLowerCase()]) {
+            stats.notBuyer += 1;
+            note(`skipped (AI unavailable — only hiring-board posts are trusted without it): ${post.title.slice(0, 80)}`);
+            seen.delete(post.id);
+            continue;
+          }
           if (q.role !== 'buyer') {
             stats.notBuyer += 1;
             note(`skipped (${q.role}): ${post.title.slice(0, 90)}`);
