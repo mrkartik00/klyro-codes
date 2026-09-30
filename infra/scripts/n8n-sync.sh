@@ -12,9 +12,9 @@ REPO="${REPO:-/var/www/klyro}"
 N8N="/opt/n8n/node/bin/node /opt/n8n/node_modules/n8n/bin/n8n"
 API_KEY="$(grep '^N8N_API_KEY=' "$REPO/server/.env" | cut -d= -f2-)"
 
-# Workflows that need no credentials beyond env vars. Gmail-based ones
-# (H3 send, H4 replies, W1 warmup) are activated by hand once mailboxes exist.
-ACTIVE=(KlyroH1aMaps0001 KlyroH2Draft0001 KlyroH11Health01)
+# Workflows kept on after every import. H3/H4 use the "Gmail — admin@klyro.codes"
+# credential (connected 2026-09-30). W1 warmup stays manual (needs WARMUP_RECIPIENTS).
+ACTIVE=(KlyroH1aMaps0001 KlyroH2Draft0001 KlyroH11Health01 KlyroH3Send00001 KlyroH4Reply0001)
 
 set -a; . /etc/klyro/n8n.env; set +a
 
