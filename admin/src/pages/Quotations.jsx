@@ -11,6 +11,7 @@ import { Card, CardContent, Button, Input, Label, Select, Badge, Spinner, EmptyS
 
 const emptyLine = () => ({ description: '', quantity: 1, unitPrice: '' });
 const idOf = (x) => String(x?._id || x?.id || '');
+const isoInDays = (days) => new Date(Date.now() + days * 864e5).toISOString();
 const STATUS_TONE = { draft: 'default', sent: 'primary', accepted: 'success', rejected: 'destructive', expired: 'warning', superseded: 'default' };
 const PORTAL = import.meta.env.VITE_PORTAL_URL || 'https://app.klyro.codes';
 
@@ -67,7 +68,7 @@ export default function Quotations() {
           items,
           discountPercent: Number(discount) || 0,
           taxPercent: Number(tax) || 0,
-          validUntil: new Date(Date.now() + days * 864e5).toISOString(),
+          validUntil: isoInDays(days),
         }),
       ),
     onSuccess: () => {
