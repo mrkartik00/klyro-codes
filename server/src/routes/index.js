@@ -11,6 +11,7 @@ import { filesRouter } from './files.routes.js';
 import { billingRouter } from './billing.routes.js';
 import { inboxRouter } from './inbox.routes.js';
 import { manageRouter } from './manage.routes.js';
+import { schedulesRouter } from './schedules.routes.js';
 
 // All admin routes require an authenticated admin with 2FA, workspace-scoped.
 export const adminRouter = Router();
@@ -32,3 +33,4 @@ adminRouter.use('/organizations', organizationsRouter);
 adminRouter.use('/enrollments', enrollmentsRouter);
 adminRouter.use('/automation', automationRouter);
 adminRouter.use('/manage', manageRouter);
+adminRouter.use('/schedules', schedulesRouter);

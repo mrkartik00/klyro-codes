@@ -85,12 +85,12 @@ export function buildScrapeQueries(target, max = 40) {
 }
 
 /** E35 — start a scrape job for a target and trigger the n8n workflow. */
-export async function startScrapeJob({ workspaceId, scrapeTargetId, createdBy }) {
+export async function startScrapeJob({ workspaceId, scrapeTargetId, createdBy, scheduleId, maxResults }) {
   const job = await withTransaction(async (session) => {
     const target = await ScrapeTarget.findOne({ workspaceId, _id: scrapeTargetId }).session(session);
     if (!target) throw ApiError.notFound('Scrape target not found');
     const [j] = await ScrapeJob.create(
-      [{ workspaceId, createdBy, scrapeTargetId, status: 'queued', requested: target.maxResults ?? 0 }],
+      [{ workspaceId, createdBy, scrapeTargetId, scheduleId, status: 'queued', requested: maxResults ?? target.maxResults ?? 0 }],
       { session, ordered: true },
     );
     await writeAudit(
@@ -109,7 +109,7 @@ export async function startScrapeJob({ workspaceId, scrapeTargetId, createdBy })
     scrapeTargetId: String(scrapeTargetId),
     queries: buildScrapeQueries(target),
     country: target?.country,
-    maxResults: target?.maxResults ?? 200,
+    maxResults: maxResults ?? target?.maxResults ?? 200,
     filters: target?.filters ?? {},
   }).catch(() => {});
 

@@ -70,7 +70,10 @@ portfolioRouter.delete(
 export const scrapeRouter = Router();
 scrapeRouter.get(
   '/targets',
-  asyncHandler(async (req, res) => ok(res, (await listScoped(ScrapeTarget, { workspaceId: req.workspaceId, query: req.query })).items)),
+  // All saved searches (the admin filters/groups them client-side).
+  asyncHandler(async (req, res) =>
+    ok(res, await ScrapeTarget.find({ workspaceId: req.workspaceId, deletedAt: null }).sort({ source: 1, group: 1, name: 1 }).limit(2000).lean()),
+  ),
 );
 scrapeRouter.post(
   '/targets',

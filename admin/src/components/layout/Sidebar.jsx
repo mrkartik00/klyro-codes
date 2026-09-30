@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
+  CalendarClock,
   LayoutDashboard,
   Users,
   Target,
@@ -21,6 +22,7 @@ export const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/approvals', label: 'Approvals', icon: CheckSquare },
   { to: '/targets', label: 'Lead Sources', icon: Target },
+  { to: '/schedules', label: 'Schedules', icon: CalendarClock },
   { to: '/leads', label: 'Leads', icon: Users },
   { to: '/campaigns', label: 'Campaigns', icon: Send },
   { to: '/templates', label: 'Templates', icon: FileText },

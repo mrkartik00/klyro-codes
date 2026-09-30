@@ -6,6 +6,7 @@ import { Spinner } from '../components/ui/index.jsx';
 import Login from '../pages/Login.jsx';
 import Dashboard from '../pages/Dashboard.jsx';
 import Leads from '../pages/Leads.jsx';
+import Schedules from '../pages/Schedules.jsx';
 import LeadDetail from '../pages/LeadDetail.jsx';
 import Targets from '../pages/Targets.jsx';
 import Campaigns from '../pages/Campaigns.jsx';
@@ -49,6 +50,7 @@ export function AppRoutes() {
         <Route path="/leads" element={<Leads />} />
         <Route path="/leads/:id" element={<LeadDetail />} />
         <Route path="/targets" element={<Targets />} />
+        <Route path="/schedules" element={<Schedules />} />
         <Route path="/campaigns" element={<Campaigns />} />
         <Route path="/campaigns/:id" element={<CampaignDetail />} />
         <Route path="/templates" element={<Templates />} />

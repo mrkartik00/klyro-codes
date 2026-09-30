@@ -31,6 +31,7 @@ scrapeTargetSchema.plugin(basePlugin, { softDelete: true });
 
 const scrapeJobSchema = new mongoose.Schema({
   scrapeTargetId: { type: mongoose.Schema.Types.ObjectId, ref: 'ScrapeTarget', index: true },
+  scheduleId: { type: mongoose.Schema.Types.ObjectId, ref: 'ScrapeSchedule', index: true }, // set when started by a schedule
   status: {
     type: String,
     enum: ['queued', 'running', 'ingesting', 'enriched', 'failed'],

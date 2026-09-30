@@ -352,7 +352,7 @@ export async function runRedditTarget({ workspaceId, target, job }) {
   const queries = [...new Set([...(target.keywords || []), ...(target.categories || [])].map((k) => k.trim()).filter(Boolean))];
   const maxAgeDays = target.filters?.maxAgeDays ?? 14;
   const minIntent = target.filters?.minIntent ?? 0.55;
-  const limit = target.maxResults ?? 50;
+  const limit = job?.requested || target.maxResults || 50;
   const seen = new Set();
   let found = 0;
   let created = 0;
@@ -445,11 +445,12 @@ export async function runRedditTarget({ workspaceId, target, job }) {
 }
 
 /** Start a reddit run in the background; returns the job immediately. */
-export async function startRedditJob({ workspaceId, scrapeTargetId, createdBy }) {
+export async function startRedditJob({ workspaceId, scrapeTargetId, createdBy, scheduleId, maxResults, wait = false }) {
   const target = await ScrapeTarget.findOne({ workspaceId, _id: scrapeTargetId });
   if (!target) throw new Error('Lead source not found');
-  const job = await ScrapeJob.create({ workspaceId, createdBy, scrapeTargetId, status: 'queued', requested: target.maxResults ?? 50 });
-  runRedditTarget({ workspaceId, target, job }).catch((err) => logger.error({ err }, 'reddit run failed'));
+  const job = await ScrapeJob.create({ workspaceId, createdBy, scrapeTargetId, scheduleId, status: 'queued', requested: maxResults ?? target.maxResults ?? 50 });
+  const p = runRedditTarget({ workspaceId, target, job }).catch((err) => logger.error({ err }, 'reddit run failed'));
+  if (wait) await p;
   return job;
 }
 

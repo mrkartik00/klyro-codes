@@ -7,6 +7,7 @@ import { sendInvoiceReminders } from '../services/billing.service.js';
 import { alertError } from '../services/alert.service.js';
 import { sendTelegram } from '../integrations/telegram/index.js';
 import { Workspace } from '../models/Workspace.js';
+import { runDueSchedules } from '../services/schedule.service.js';
 
 const connection = () => getRedis();
 const registry = [];
@@ -19,7 +20,8 @@ export function startQueues() {
   const daily = new Queue('dailyReset', opts);
   const rollup = new Queue('metricsRollup', opts);
   const reminders = new Queue('invoiceReminders', opts);
-  registry.push(health, daily, rollup, reminders);
+  const scheduler = new Queue('scrapeScheduler', opts);
+  registry.push(health, daily, rollup, reminders, scheduler);
 
   const mbWorker = new Worker(
     'mailboxHealth',
@@ -55,12 +57,16 @@ export function startQueues() {
     opts,
   );
 
+  // Scrape schedules (admin-defined cron jobs) — checked every minute.
+  const schedulerWorker = new Worker('scrapeScheduler', async () => runDueSchedules(), opts);
+
   // Surface worker failures to Telegram instead of failing silently.
   for (const [name, w] of [
     ['mailboxHealth', mbWorker],
     ['dailyReset', dailyWorker],
     ['metricsRollup', rollupWorker],
     ['invoiceReminders', remindersWorker],
+    ['scrapeScheduler', schedulerWorker],
   ]) {
     w.on('failed', (_job, err) => {
       logger.error({ err, worker: name }, 'BullMQ worker failed');
@@ -74,8 +80,9 @@ export function startQueues() {
   daily.add('midnight', {}, { repeat: { pattern: '0 0 * * *' }, removeOnComplete: true });
   rollup.add('hourly', {}, { repeat: { pattern: '30 * * * *' }, removeOnComplete: true });
   reminders.add('daily', {}, { repeat: { pattern: '0 9 * * *' }, removeOnComplete: true });
+  scheduler.add('minute', {}, { repeat: { pattern: '* * * * *' }, removeOnComplete: true, removeOnFail: 50 });
 
-  logger.info('BullMQ queues started (mailboxHealth, dailyReset, metricsRollup, invoiceReminders)');
+  logger.info('BullMQ queues started (mailboxHealth, dailyReset, metricsRollup, invoiceReminders, scrapeScheduler)');
 }
 
 export async function stopQueues() {

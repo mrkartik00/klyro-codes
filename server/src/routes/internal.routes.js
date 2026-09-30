@@ -9,7 +9,7 @@ import { ingestBatch } from '../services/lead.service.js';
 import { applyEnrichment } from '../services/enrichment.service.js';
 import { claimSend, readySends, recordSendResult } from '../services/send.service.js';
 import { handleReply, resolveReplyEnrollment } from '../services/reply.service.js';
-import { scanAllReddit } from '../services/social.service.js';
+import { runDueSchedules } from '../services/schedule.service.js';
 import { classifyReply } from '../services/drafting.service.js';
 import { dueSteps, draftStep, handleBounce } from '../services/pipeline.service.js';
 import { updateScrapeProgress } from '../services/scrape.service.js';
@@ -73,8 +73,8 @@ internalRouter.post(
   '/social/reddit/scan',
   validateBody(z.object({ workspaceId: wsId })),
   asyncHandler(async (req, res) => {
-    scanAllReddit({ workspaceId: req.body.workspaceId }).catch(() => {});
-    return ok(res, { started: true });
+    // Scheduling now lives in Schedules (admin); this n8n call is just a backup tick.
+    return ok(res, await runDueSchedules());
   }),
 );
 
