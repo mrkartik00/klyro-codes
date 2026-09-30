@@ -86,4 +86,24 @@ describe('admin full control (/admin/manage, /admin/scrape)', () => {
     await api('get', '/scrape/jobs');
     expect((await ScrapeJob.findById(job._id).lean()).status).toBe('failed');
   });
+  it('search detail lists runs and schedules; bulk pause/move/delete', async () => {
+    const { ScrapeSchedule } = await import('../../src/models/ScrapeSchedule.js');
+    await ScrapeSchedule.deleteMany({});
+    const a = await ScrapeTarget.create({ workspaceId: ws._id, name: 'A', group: 'Home', categories: ['roofer'] });
+    const b = await ScrapeTarget.create({ workspaceId: ws._id, name: 'B', group: 'Home', categories: ['hvac'] });
+    await ScrapeJob.create({ workspaceId: ws._id, scrapeTargetId: a._id, status: 'enriched', found: 5, ingested: 3 });
+    await ScrapeSchedule.create({ workspaceId: ws._id, name: 'Nightly home', source: 'maps', groups: ['Home'], frequency: { type: 'daily', times: ['01:00'] } });
+    await ScrapeSchedule.create({ workspaceId: ws._id, name: 'Reddit only', source: 'reddit', frequency: { type: 'daily', times: ['01:00'] } });
+    const d = (await api('get', `/scrape/targets/${a._id}`)).body.data;
+    expect(d.totals).toMatchObject({ runs: 1, found: 5, leads: 3 });
+    expect(d.schedules.map((x) => x.name)).toEqual(['Nightly home']);
+
+    const ids = [String(a._id), String(b._id)];
+    expect((await api('post', '/scrape/targets/bulk').send({ ids, action: 'pause' })).body.data.updated).toBe(2);
+    expect((await ScrapeTarget.findById(a._id).lean()).active).toBe(false);
+    await api('post', '/scrape/targets/bulk').send({ ids, action: 'group', group: 'Trades' });
+    expect((await ScrapeTarget.findById(b._id).lean()).group).toBe('Trades');
+    await api('post', '/scrape/targets/bulk').send({ ids, action: 'delete' });
+    expect((await api('get', '/scrape/targets')).body.data).toHaveLength(0);
+  });
 });

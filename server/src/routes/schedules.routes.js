@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 // Admin CRUD for scrape schedules ("cron jobs").
 import { Router } from 'express';
 import { z } from 'zod';
@@ -57,7 +58,7 @@ const check = (s) => {
 async function withStats(workspaceId, docs) {
   const ids = docs.map((d) => d._id);
   const stats = await ScrapeJob.aggregate([
-    { $match: { workspaceId, scheduleId: { $in: ids } } },
+    { $match: { workspaceId: new mongoose.Types.ObjectId(String(workspaceId)), scheduleId: { $in: ids } } },
     { $group: { _id: '$scheduleId', runs: { $sum: 1 }, leads: { $sum: '$ingested' }, failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } } } },
   ]);
   const by = Object.fromEntries(stats.map((x) => [String(x._id), x]));

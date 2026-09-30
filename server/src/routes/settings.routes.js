@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -9,6 +10,7 @@ import { Setting } from '../models/Setting.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { ScrapeTarget } from '../models/ScrapeTarget.js';
 import { ScrapeJob } from '../models/ScrapeTarget.js';
+import { ScrapeSchedule } from '../models/ScrapeSchedule.js';
 import { Organization } from '../models/Organization.js';
 import { Lead } from '../models/Lead.js';
 import { LeadSource } from '../models/LeadSource.js';
@@ -94,6 +96,43 @@ scrapeRouter.post(
     }),
   ),
   asyncHandler(async (req, res) => created(res, await ScrapeTarget.create({ ...scope(req), ...req.body }))),
+);
+
+// One saved search in detail: its runs and the schedules that include it.
+scrapeRouter.get(
+  '/targets/:id',
+  asyncHandler(async (req, res) => {
+    const target = await ScrapeTarget.findOne({ workspaceId: req.workspaceId, _id: req.params.id, deletedAt: null }).lean();
+    if (!target) throw ApiError.notFound('Lead source not found');
+    const jobs = await ScrapeJob.find({ workspaceId: req.workspaceId, scrapeTargetId: target._id }).sort({ createdAt: -1 }).limit(20).lean();
+    const [totals] = await ScrapeJob.aggregate([
+      { $match: { workspaceId: new mongoose.Types.ObjectId(String(req.workspaceId)), scrapeTargetId: target._id } },
+      { $group: { _id: null, runs: { $sum: 1 }, found: { $sum: '$found' }, leads: { $sum: '$ingested' } } },
+    ]);
+    const src = target.source === 'reddit' ? 'reddit' : 'maps';
+    const schedules = (await ScrapeSchedule.find({ workspaceId: req.workspaceId, deletedAt: null }).lean())
+      .filter((sc) =>
+        sc.mode === 'pick'
+          ? (sc.targetIds || []).some((x) => String(x) === String(target._id))
+          : (sc.source === 'any' || sc.source === src) && (!(sc.groups || []).length || sc.groups.includes(target.group)),
+      )
+      .map((sc) => ({ _id: sc._id, name: sc.name, enabled: sc.enabled, nextRunAt: sc.nextRunAt }));
+    return ok(res, { target, jobs, totals: totals || { runs: 0, found: 0, leads: 0 }, schedules });
+  }),
+);
+// Bulk: pause / resume / delete / move to a category.
+scrapeRouter.post(
+  '/targets/bulk',
+  validateBody(z.object({ ids: z.array(z.string()).min(1).max(1000), action: z.enum(['pause', 'resume', 'delete', 'group']), group: z.string().trim().max(60).optional() })),
+  asyncHandler(async (req, res) => {
+    const { ids, action, group } = req.body;
+    const filter = { workspaceId: req.workspaceId, _id: { $in: ids }, deletedAt: null };
+    const set =
+      action === 'pause' ? { active: false } : action === 'resume' ? { active: true } : action === 'delete' ? { deletedAt: new Date(), active: false } : { group: group || 'Ungrouped' };
+    const r = await ScrapeTarget.updateMany(filter, { $set: set });
+    await writeAudit({ workspaceId: req.workspaceId, actorId: req.auth.userId, action: `scrapeTarget.bulk.${action}`, entity: 'scrapeTarget', meta: { count: ids.length, group } });
+    return ok(res, { updated: r.modifiedCount });
+  }),
 );
 
 // E35 — start a scrape run + list jobs.

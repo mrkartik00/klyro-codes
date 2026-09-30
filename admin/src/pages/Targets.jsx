@@ -1,7 +1,7 @@
-import { Fragment, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plus, Play, Upload, Pencil, Pause, Trash2, Square, ExternalLink } from 'lucide-react';
+import { Plus, Play, Upload, Pencil, Pause, Trash2, Square, ExternalLink, CalendarClock } from 'lucide-react';
 import api, { unwrap } from '../lib/api.js';
 import { useToast } from '../hooks/useToast.jsx';
 import { formatDate } from '../lib/format.js';
@@ -10,6 +10,7 @@ import { Dialog } from '../components/ui/Dialog.jsx';
 import { Card, Button, Input, Label, Select, Badge, Spinner, EmptyState, Textarea } from '../components/ui/index.jsx';
 
 const EMPTY = { source: 'maps', group: '', name: '', categories: '', cities: '', country: 'US', maxResults: 100, hasWebsite: 'any', minRating: '', communities: 'forhire, b2bforhire, hireaprogrammer, startups, Entrepreneur, smallbusiness, ecommerce, SaaS', keywords: 'looking for a developer, hire a developer, need an app built, looking for an agency, need a website built, app development company, developer to build', minIntent: 55, maxAgeDays: 14 };
+const idOf = (x) => String(x?._id || x?.id || '');
 const RUNNING = new Set(['queued', 'running', 'ingesting']);
 const JOB_TONE = { queued: 'default', running: 'warning', ingesting: 'warning', enriched: 'success', failed: 'destructive' };
 
@@ -181,6 +182,118 @@ function RunDetail({ jobId, onClose }) {
   );
 }
 
+/** One saved search: settings, totals, schedules that include it, recent runs. */
+function SearchDetail({ id, onClose, onRun, onEdit, onOpenRun }) {
+  const q = useQuery({
+    queryKey: ['scrape-target', id],
+    queryFn: () => unwrap(api.get(`/admin/scrape/targets/${id}`)),
+    enabled: Boolean(id),
+    refetchInterval: (x) => ((x.state.data?.jobs || []).some((j) => RUNNING.has(j.status)) ? 5000 : false),
+  });
+  const { target: t, jobs = [], totals, schedules = [] } = q.data || {};
+  const f = t?.filters || {};
+  const rows = t
+    ? t.source === 'reddit'
+      ? [
+          ['Subreddits', (t.communities || []).map((c) => `r/${c}`).join(', ')],
+          ['Phrases', (t.keywords || []).join(', ') || 'Hiring boards: [Hiring] posts only'],
+          ['Min buying intent', f.minIntent != null ? `${Math.round(f.minIntent * 100)}%` : '55%'],
+          ['Posts from last', `${f.maxAgeDays ?? 14} days`],
+        ]
+      : [
+          ['Business types', (t.categories || []).join(', ')],
+          ['Cities', `${(t.cities || []).join(', ') || 'Whole country'} · ${t.country}`],
+          ['Website', f.hasWebsite === true ? 'Has a website' : f.hasWebsite === false ? 'No website only' : 'Any'],
+          ['Min rating', f.minRating ?? 'Any'],
+        ]
+    : [];
+  return (
+    <Dialog open={Boolean(id)} onClose={onClose} title={t?.name || 'Search'} className="max-w-3xl!">
+      {!t ? (
+        <div className="flex justify-center py-10">
+          <Spinner />
+        </div>
+      ) : (
+        <div className="space-y-5 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={t.source === 'reddit' ? 'warning' : 'primary'}>{t.source === 'reddit' ? 'Reddit' : 'Google Maps'}</Badge>
+            {t.group && <Badge>{t.group}</Badge>}
+            {t.active === false && <Badge>Paused</Badge>}
+            <div className="ml-auto flex gap-2">
+              <Button size="sm" onClick={() => onRun(idOf(t))}>
+                <Play size={14} aria-hidden="true" /> Run now
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => onEdit(t)}>
+                <Pencil size={14} aria-hidden="true" /> Edit
+              </Button>
+            </div>
+          </div>
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+            {[...rows, ['Max leads per run', t.maxResults], ['Last run', t.lastRunAt ? formatDate(t.lastRunAt) : 'never']].map(([k, v]) => (
+              <div key={k}>
+                <dt className="text-xs text-muted-foreground">{k}</dt>
+                <dd className="break-words">{String(v ?? '—')}</dd>
+              </div>
+            ))}
+          </dl>
+          <dl className="grid grid-cols-3 gap-3">
+            {[
+              ['Runs', totals?.runs ?? 0],
+              ['Found', totals?.found ?? 0],
+              ['New leads', totals?.leads ?? 0],
+            ].map(([k, v]) => (
+              <div key={k} className="rounded-lg border border-border p-3">
+                <dt className="text-xs text-muted-foreground">{k}</dt>
+                <dd className="text-lg font-semibold tabular-nums">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          <section>
+            <h3 className="mb-1 font-semibold">Schedules that run it</h3>
+            {schedules.length === 0 ? (
+              <p className="text-muted-foreground">
+                None — it only runs when you press Run. <Link to="/schedules" className="text-primary hover:underline">Add a schedule</Link>
+              </p>
+            ) : (
+              <ul className="space-y-0.5">
+                {schedules.map((s) => (
+                  <li key={s._id}>
+                    <Link to="/schedules" className="text-primary hover:underline">
+                      {s.name}
+                    </Link>{' '}
+                    <span className="text-xs text-muted-foreground">{s.enabled ? `· next ${formatDate(s.nextRunAt)}` : '· paused'}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section>
+            <h3 className="mb-2 font-semibold">Recent runs</h3>
+            {jobs.length === 0 ? (
+              <p className="text-muted-foreground">Never run yet.</p>
+            ) : (
+              <ul className="divide-y divide-border rounded-lg border border-border">
+                {jobs.map((j) => (
+                  <li key={idOf(j)}>
+                    <button type="button" onClick={() => onOpenRun(idOf(j))} className="flex w-full flex-wrap items-center gap-3 px-3 py-2 text-left hover:bg-muted/50">
+                      <Badge variant={JOB_TONE[j.status] || 'default'}>{j.status === 'enriched' ? 'done' : j.status}</Badge>
+                      <span className="flex-1 text-xs text-muted-foreground">
+                        found {j.found ?? 0} · new {j.ingested ?? 0}
+                        {j.scheduleId ? ' · scheduled' : ''}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{formatDate(j.createdAt)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
 export default function Targets() {
   const qc = useQueryClient();
   const toast = useToast();
@@ -200,6 +313,10 @@ export default function Targets() {
   const [rStatus, setRStatus] = useState('');
   const [rSource, setRSource] = useState('');
   const [rPage, setRPage] = useState(1);
+  const [tab, setTab] = useState('searches');
+  const [sPage, setSPage] = useState(1);
+  const [selected, setSelected] = useState(() => new Set());
+  const [detailId, setDetailId] = useState(null);
   const fileRef = useRef(null);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -222,16 +339,11 @@ export default function Targets() {
       return rows.some((j) => RUNNING.has(j.status)) ? 5000 : false;
     },
   });
-  const targetRows = Array.isArray(targets.data) ? targets.data : targets.data?.items || [];
+  const targetRows = useMemo(() => (Array.isArray(targets.data) ? targets.data : targets.data?.items || []), [targets.data]);
   const jobRows = jobs.data?.data || [];
   const jobPages = Math.max(1, jobs.data?.meta?.pages ?? 1);
   const targetById = Object.fromEntries(targetRows.map((t) => [String(t._id || t.id), t]));
-  const targetName = Object.fromEntries(targetRows.map((t) => [String(t._id || t.id), t.name]));
   const srcOf = (t) => (t?.source === 'reddit' ? 'reddit' : 'maps');
-  const groups = useMemo(
-    () => [...new Set(targetRows.filter((t) => !fSource || srcOf(t) === fSource).map((t) => t.group || 'Ungrouped'))].sort(),
-    [targetRows, fSource],
-  );
   const shown = useMemo(() => {
     const needle = fText.trim().toLowerCase();
     return targetRows
@@ -287,6 +399,15 @@ export default function Targets() {
     setForm(formFromTarget(t));
     setOpen(true);
   };
+  const bulk = useMutation({
+    mutationFn: (body) => unwrap(api.post('/admin/scrape/targets/bulk', { ids: [...selected], ...body })),
+    onSuccess: (d, v) => {
+      qc.invalidateQueries({ queryKey: ['scrape-targets'] });
+      toast.success(`${v.action === 'delete' ? 'Deleted' : 'Updated'} ${d?.updated ?? 0} search(es)`);
+      setSelected(new Set());
+    },
+    onError: (e) => toast.error(e.message || 'Bulk action failed'),
+  });
   const importCsv = useMutation({
     mutationFn: (text) => unwrap(api.post('/admin/scrape/import-csv', { csv: text })),
     onSuccess: (d) => {
@@ -302,11 +423,40 @@ export default function Targets() {
   // Hiring boards need no phrases (they're read in full), so only subreddits are required.
   const canSave = form.source === 'reddit' ? payload.communities.length > 0 : payload.categories.length > 0;
 
+  const PER_PAGE = 15;
+  const pageRows = shown.slice((sPage - 1) * PER_PAGE, sPage * PER_PAGE);
+  const sPages = Math.max(1, Math.ceil(shown.length / PER_PAGE));
+  const pickCategory = (source, group) => {
+    setFSource(source);
+    setFGroup(group);
+    setSPage(1);
+    setSelected(new Set());
+  };
+  const nav = ['maps', 'reddit'].map((src) => ({
+    src,
+    label: src === 'reddit' ? 'Reddit' : 'Google Maps',
+    total: counts[src],
+    groups: [...new Set(targetRows.filter((t) => srcOf(t) === src).map((t) => t.group || 'Ungrouped'))]
+      .sort()
+      .map((g) => ({ g, n: targetRows.filter((t) => srcOf(t) === src && (t.group || 'Ungrouped') === g).length })),
+  }));
+  const allOnPage = pageRows.length > 0 && pageRows.every((t) => selected.has(idOf(t)));
+  const toggleSel = (id) =>
+    setSelected((s0) => {
+      const n = new Set(s0);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const liveRuns = jobRows.some((j) => RUNNING.has(j.status));
+  const navBtn = (active) =>
+    `flex min-h-9 w-full items-center justify-between rounded-md px-2 text-left text-sm ${active ? 'bg-primary/15 font-medium text-foreground' : 'text-muted-foreground hover:bg-muted'}`;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Lead Sources"
-        description="Find businesses on Google Maps, people asking for help on Reddit, or import your own list."
+        description="Saved searches for Google Maps and Reddit. Run them by hand, or automate them in Schedules."
         actions={
           <>
             <Button variant="secondary" onClick={() => setCsvOpen(true)}>
@@ -315,7 +465,7 @@ export default function Targets() {
             <Button
               onClick={() => {
                 setEditId(null);
-                setForm(EMPTY);
+                setForm({ ...EMPTY, source: fSource || 'maps', group: fGroup && fGroup !== 'Ungrouped' ? fGroup : '' });
                 setOpen(true);
               }}
             >
@@ -325,168 +475,227 @@ export default function Targets() {
         }
       />
 
-      <Card className="overflow-hidden">
-        <div className="space-y-3 border-b border-border px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm font-semibold">
-              Saved searches <span className="font-normal text-muted-foreground">· {shown.length} shown</span>
-            </span>
-            <div className="flex rounded-lg border border-border p-0.5 text-xs" role="tablist" aria-label="Source">
-              {[
-                ['', `All (${counts.all})`],
-                ['maps', `Google Maps (${counts.maps})`],
-                ['reddit', `Reddit (${counts.reddit})`],
-              ].map(([v, label]) => (
-                <button
-                  key={v || 'all'}
-                  type="button"
-                  role="tab"
-                  aria-selected={fSource === v}
-                  onClick={() => {
-                    setFSource(v);
-                    setFGroup('');
-                  }}
-                  className={`min-h-9 rounded-md px-3 ${fSource === v ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <Input aria-label="Search saved searches" placeholder="Search name, niche, city, subreddit…" value={fText} onChange={(e) => setFText(e.target.value)} />
-            <Select aria-label="Filter by category" value={fGroup} onChange={(e) => setFGroup(e.target.value)}>
-              <option value="">All categories</option>
-              {groups.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
-              ))}
-            </Select>
-            <Select aria-label="Filter by status" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
-              <option value="">Active and paused</option>
-              <option value="active">Active only</option>
-              <option value="paused">Paused only</option>
-            </Select>
-          </div>
-        </div>
-        {targets.isLoading ? (
-          <div className="flex justify-center py-12">
-            <Spinner />
-          </div>
-        ) : targetRows.length === 0 ? (
-          <div className="p-5">
-            <EmptyState
-              title="No searches yet"
-              hint='Create one like "dentist" in "Austin, Dallas" and press Run.'
-            />
-          </div>
-        ) : (
-          <div className="-mx-px overflow-x-auto overscroll-x-contain">
-            <table className="w-full min-w-[720px] text-sm [&_th]:whitespace-nowrap">
-              <thead>
-                <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-4 py-3">Search</th>
-                  <th className="px-4 py-3">Source</th>
-                  <th className="px-4 py-3">Looking for</th>
-                  <th className="px-4 py-3">Where</th>
-                  <th className="px-4 py-3">Max</th>
-                  <th className="px-4 py-3">Last run</th>
-                  <th className="px-4 py-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shown.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
-                      No searches match these filters.
-                    </td>
-                  </tr>
-                )}
-                {shown.map((t, i) => {
-                  const id = String(t._id || t.id);
-                  const header = `${srcOf(t)}|${t.group || 'Ungrouped'}`;
-                  const prev = shown[i - 1];
-                  const newGroup = !prev || `${srcOf(prev)}|${prev.group || 'Ungrouped'}` !== header;
-                  return (
-                    <Fragment key={id}>
-                    {newGroup && (
-                      <tr className="border-b border-border bg-muted/40">
-                        <th colSpan={7} scope="colgroup" className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          {srcOf(t) === 'reddit' ? 'Reddit' : 'Google Maps'} · {t.group || 'Ungrouped'}
-                        </th>
-                      </tr>
-                    )}
-                    <tr className={`border-b border-border/60 ${t.active === false ? 'opacity-60' : ''}`}>
-                      <td className="px-4 py-3 font-medium">
-                        <button type="button" className="text-left hover:underline" onClick={() => setRunFilter(id)} title="Show this search's runs">
-                          {t.name}
+      <div className="flex flex-wrap items-center gap-2 border-b border-border" role="tablist" aria-label="Lead Sources sections">
+        {[
+          ['searches', `Searches (${counts.all})`],
+          ['runs', 'Runs'],
+        ].map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={tab === v}
+            onClick={() => setTab(v)}
+            className={`-mb-px min-h-11 border-b-2 px-4 text-sm font-medium ${tab === v ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          >
+            {label}
+            {v === 'runs' && liveRuns && <span className="ml-2 inline-block size-2 rounded-full bg-amber-400 align-middle" aria-label="runs in progress" />}
+          </button>
+        ))}
+        <Link to="/schedules" className="ml-auto flex min-h-11 items-center gap-1 px-2 text-sm text-primary hover:underline">
+          <CalendarClock size={14} aria-hidden="true" /> Schedules
+        </Link>
+      </div>
+
+      {tab === 'searches' ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[15rem_1fr]">
+          {/* Category navigation */}
+          <nav aria-label="Categories" className="hidden lg:block">
+            <Card className="sticky top-4 max-h-[calc(100dvh-2rem)] space-y-3 overflow-y-auto p-2">
+              <button type="button" className={navBtn(!fSource && !fGroup)} onClick={() => pickCategory('', '')}>
+                <span>All searches</span>
+                <span className="text-xs">{counts.all}</span>
+              </button>
+              {nav.map((sec) => (
+                <div key={sec.src}>
+                  <button type="button" className={`${navBtn(fSource === sec.src && !fGroup)} font-semibold`} onClick={() => pickCategory(sec.src, '')}>
+                    <span>{sec.label}</span>
+                    <span className="text-xs">{sec.total}</span>
+                  </button>
+                  <ul className="ml-2 border-l border-border pl-2">
+                    {sec.groups.map(({ g, n }) => (
+                      <li key={g}>
+                        <button type="button" className={navBtn(fSource === sec.src && fGroup === g)} onClick={() => pickCategory(sec.src, g)}>
+                          <span className="truncate">{g}</span>
+                          <span className="text-xs">{n}</span>
                         </button>
-                        {t.active === false && (
-                          <Badge className="ml-2">Paused</Badge>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant={t.source === 'reddit' ? 'warning' : 'primary'}>{t.source === 'reddit' ? 'Reddit' : 'Google Maps'}</Badge>
-                      </td>
-                      <td className="max-w-[16rem] truncate px-4 py-3">{[...(t.categories || []), ...(t.keywords || [])].join(', ') || (t.source === 'reddit' ? '[Hiring] posts' : '—')}</td>
-                      <td className="max-w-[14rem] truncate px-4 py-3">
-                        {t.source === 'reddit'
-                          ? (t.communities || []).map((c) => `r/${c}`).join(', ') || 'r/smallbusiness'
-                          : `${(t.cities || []).join(', ') || 'Whole country'} · ${t.country}`}
-                      </td>
-                      <td className="px-4 py-3">{t.maxResults}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{t.lastRunAt ? formatDate(t.lastRunAt) : 'never'}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-1">
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </Card>
+          </nav>
+
+          <div className="min-w-0 space-y-3">
+            {/* Mobile category picker + filters */}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <Select
+                aria-label="Category"
+                className="lg:hidden"
+                value={`${fSource}|${fGroup}`}
+                onChange={(e) => {
+                  const [src, g] = e.target.value.split('|');
+                  pickCategory(src, g);
+                }}
+              >
+                <option value="|">All searches ({counts.all})</option>
+                {nav.map((sec) => [
+                  <option key={sec.src} value={`${sec.src}|`}>
+                    {sec.label} — all ({sec.total})
+                  </option>,
+                  ...sec.groups.map(({ g, n }) => (
+                    <option key={`${sec.src}${g}`} value={`${sec.src}|${g}`}>
+                      {sec.label} · {g} ({n})
+                    </option>
+                  )),
+                ])}
+              </Select>
+              <Input
+                aria-label="Search saved searches"
+                placeholder="Search name, niche, city, subreddit…"
+                value={fText}
+                onChange={(e) => {
+                  setFText(e.target.value);
+                  setSPage(1);
+                }}
+                className="sm:col-span-1 lg:col-span-2"
+              />
+              <Select
+                aria-label="Filter by status"
+                value={fStatus}
+                onChange={(e) => {
+                  setFStatus(e.target.value);
+                  setSPage(1);
+                }}
+              >
+                <option value="">Active and paused</option>
+                <option value="active">Active only</option>
+                <option value="paused">Paused only</option>
+              </Select>
+            </div>
+
+            {selected.size > 0 && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-card p-3 text-sm" role="region" aria-label="Bulk actions">
+                <span className="font-medium">{selected.size} selected</span>
+                <Button size="sm" variant="secondary" onClick={() => bulk.mutate({ action: 'pause' })} disabled={bulk.isPending}>
+                  Pause
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => bulk.mutate({ action: 'resume' })} disabled={bulk.isPending}>
+                  Resume
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={bulk.isPending}
+                  onClick={() => {
+                    const g = window.prompt('Move to category', fGroup && fGroup !== 'Ungrouped' ? fGroup : '');
+                    if (g?.trim()) bulk.mutate({ action: 'group', group: g.trim() });
+                  }}
+                >
+                  Move to category
+                </Button>
+                <Button size="sm" variant="destructive" disabled={bulk.isPending} onClick={() => window.confirm(`Delete ${selected.size} search(es)? Their leads are kept.`) && bulk.mutate({ action: 'delete' })}>
+                  Delete
+                </Button>
+                <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setSelected(new Set())}>
+                  Clear
+                </Button>
+              </div>
+            )}
+
+            <Card className="overflow-hidden">
+              <div className="flex items-center justify-between border-b border-border px-4 py-2.5 text-sm">
+                <span className="font-semibold">
+                  {fGroup || (fSource ? (fSource === 'reddit' ? 'Reddit' : 'Google Maps') : 'All searches')}
+                  <span className="ml-2 font-normal text-muted-foreground">{shown.length} search{shown.length === 1 ? '' : 'es'}</span>
+                </span>
+                <span className="text-xs text-muted-foreground">Click a search for details</span>
+              </div>
+              {targets.isLoading ? (
+                <div className="flex justify-center py-12">
+                  <Spinner />
+                </div>
+              ) : shown.length === 0 ? (
+                <div className="p-5">
+                  <EmptyState title={targetRows.length ? 'No searches match' : 'No searches yet'} hint={targetRows.length ? 'Try another category or clear the filters.' : 'Create one with New search.'} />
+                </div>
+              ) : (
+                <ul className="divide-y divide-border">
+                  <li className="flex items-center gap-3 bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className="size-4"
+                      aria-label="Select all on this page"
+                      checked={allOnPage}
+                      onChange={() =>
+                        setSelected((s0) => {
+                          const n = new Set(s0);
+                          pageRows.forEach((t) => (allOnPage ? n.delete(idOf(t)) : n.add(idOf(t))));
+                          return n;
+                        })
+                      }
+                    />
+                    <span className="flex-1">Search</span>
+                    <span className="hidden w-28 sm:block">Last run</span>
+                    <span className="w-44 text-right">Actions</span>
+                  </li>
+                  {pageRows.map((t) => {
+                    const id = idOf(t);
+                    const what = [...(t.categories || []), ...(t.keywords || [])].join(', ') || (t.source === 'reddit' ? '[Hiring] posts' : '—');
+                    const where = t.source === 'reddit' ? (t.communities || []).map((c) => `r/${c}`).join(', ') : `${(t.cities || []).join(', ') || 'Whole country'} · ${t.country}`;
+                    return (
+                      <li key={id} className={`flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 ${t.active === false ? 'opacity-60' : ''}`}>
+                        <input type="checkbox" className="size-4" aria-label={`Select ${t.name}`} checked={selected.has(id)} onChange={() => toggleSel(id)} />
+                        <button type="button" onClick={() => setDetailId(id)} className="min-w-0 flex-1 text-left">
+                          <span className="flex items-center gap-2">
+                            <span className="truncate font-medium hover:underline">{t.name}</span>
+                            {!fSource && <Badge variant={t.source === 'reddit' ? 'warning' : 'primary'}>{t.source === 'reddit' ? 'Reddit' : 'Maps'}</Badge>}
+                            {t.active === false && <Badge>Paused</Badge>}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {what} · {where} · max {t.maxResults}
+                          </span>
+                        </button>
+                        <span className="hidden w-28 shrink-0 text-xs text-muted-foreground sm:block">{t.lastRunAt ? formatDate(t.lastRunAt) : 'never'}</span>
+                        <div className="flex w-44 shrink-0 justify-end gap-1">
                           <Button size="sm" onClick={() => run.mutate(id)} disabled={run.isPending && run.variables === id} aria-label={`Run ${t.name}`}>
                             <Play size={14} aria-hidden="true" /> Run
                           </Button>
                           <Button size="sm" variant="ghost" onClick={() => openEdit(t)} aria-label={`Edit ${t.name}`}>
                             <Pencil size={14} aria-hidden="true" />
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => toggle.mutate({ id, active: t.active === false })}
-                            aria-label={t.active === false ? `Resume ${t.name}` : `Pause ${t.name}`}
-                            title={t.active === false ? 'Resume' : 'Pause'}
-                          >
+                          <Button size="sm" variant="ghost" onClick={() => toggle.mutate({ id, active: t.active === false })} aria-label={t.active === false ? `Resume ${t.name}` : `Pause ${t.name}`}>
                             {t.active === false ? <Play size={14} aria-hidden="true" /> : <Pause size={14} aria-hidden="true" />}
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => window.confirm(`Delete "${t.name}"? Leads it found are kept.`) && remove.mutate(id)}
-                            aria-label={`Delete ${t.name}`}
-                          >
+                          <Button size="sm" variant="ghost" onClick={() => window.confirm(`Delete "${t.name}"? Leads it found are kept.`) && remove.mutate(id)} aria-label={`Delete ${t.name}`}>
                             <Trash2 size={14} aria-hidden="true" />
                           </Button>
                         </div>
-                      </td>
-                    </tr>
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {sPages > 1 && (
+                <nav className="flex items-center justify-between border-t border-border px-4 py-2.5 text-sm" aria-label="Searches pagination">
+                  <Button variant="secondary" size="sm" disabled={sPage <= 1} onClick={() => setSPage((p0) => p0 - 1)}>
+                    Previous
+                  </Button>
+                  <span className="text-muted-foreground">
+                    Page {sPage} of {sPages}
+                  </span>
+                  <Button variant="secondary" size="sm" disabled={sPage >= sPages} onClick={() => setSPage((p0) => p0 + 1)}>
+                    Next
+                  </Button>
+                </nav>
+              )}
+            </Card>
           </div>
-        )}
-      </Card>
-
-      <Card className="overflow-hidden">
-        <div className="space-y-3 border-b border-border px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm font-semibold">
-              Recent runs <span className="font-normal text-muted-foreground">· click a run for details</span>
-            </span>
-            {jobRows.some((j) => RUNNING.has(j.status)) && (
-              <span className="text-xs text-muted-foreground" aria-live="polite">
-                Updating live…
-              </span>
-            )}
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        </div>
+      ) : (
+        <Card className="overflow-hidden">
+          <div className="grid grid-cols-1 gap-2 border-b border-border p-3 sm:grid-cols-3">
             <Select
               aria-label="Filter runs by search"
               value={runFilter}
@@ -499,7 +708,7 @@ export default function Targets() {
               {[...targetRows]
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .map((t) => (
-                  <option key={String(t._id || t.id)} value={String(t._id || t.id)}>
+                  <option key={idOf(t)} value={idOf(t)}>
                     {t.name}
                   </option>
                 ))}
@@ -531,73 +740,86 @@ export default function Targets() {
               <option value="failed">Failed / stopped</option>
             </Select>
           </div>
-        </div>
-        {jobs.isLoading ? (
-          <div className="flex justify-center py-10">
-            <Spinner />
-          </div>
-        ) : jobRows.length === 0 ? (
-          <div className="p-5">
-            <EmptyState title={runFilter || rStatus || rSource ? 'No runs match these filters' : 'No runs yet'} hint="Runs show here with live progress." />
-          </div>
-        ) : (
-          <div className="-mx-px overflow-x-auto overscroll-x-contain">
-            <table className="w-full min-w-[640px] text-sm [&_th]:whitespace-nowrap">
-              <thead>
-                <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-4 py-3">Search</th>
-                  <th className="px-4 py-3">Source</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Found</th>
-                  <th className="px-4 py-3">New leads</th>
-                  <th className="px-4 py-3">Started</th>
-                </tr>
-              </thead>
-              <tbody>
-                {jobRows.map((j) => (
-                  <tr
-                    key={String(j._id || j.id)}
-                    className="cursor-pointer border-b border-border/60 hover:bg-muted/50"
-                    onClick={() => setJobId(String(j._id || j.id))}
-                    onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setJobId(String(j._id || j.id))}
-                    tabIndex={0}
-                    aria-label="Open run details"
-                  >
-                    <td className="px-4 py-3">{targetName[String(j.scrapeTargetId)] || 'Deleted search'}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant={srcOf(targetById[String(j.scrapeTargetId)]) === 'reddit' ? 'warning' : 'primary'}>
-                        {srcOf(targetById[String(j.scrapeTargetId)]) === 'reddit' ? 'Reddit' : 'Maps'}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={JOB_TONE[j.status] || 'default'}>
-                        {j.status === 'enriched' ? 'done' : j.status}
-                      </Badge>
-                      {j.error && <p className="mt-1 max-w-xs text-xs text-destructive">{j.error}</p>}
-                    </td>
-                    <td className="px-4 py-3">{j.found ?? 0}</td>
-                    <td className="px-4 py-3">{j.ingested ?? 0}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{formatDate(j.createdAt)}</td>
+          {jobs.isLoading ? (
+            <div className="flex justify-center py-10">
+              <Spinner />
+            </div>
+          ) : jobRows.length === 0 ? (
+            <div className="p-5">
+              <EmptyState title={runFilter || rStatus || rSource ? 'No runs match these filters' : 'No runs yet'} hint="Runs show here with live progress." />
+            </div>
+          ) : (
+            <div className="-mx-px overflow-x-auto overscroll-x-contain">
+              <table className="w-full min-w-[720px] text-sm [&_th]:whitespace-nowrap">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="px-4 py-3">Search</th>
+                    <th className="px-4 py-3">Source</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Found</th>
+                    <th className="px-4 py-3">New leads</th>
+                    <th className="px-4 py-3">Started</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {jobPages > 1 && (
-          <nav className="flex items-center justify-between border-t border-border px-4 py-3 text-sm" aria-label="Runs pagination">
-            <Button variant="secondary" size="sm" disabled={rPage <= 1} onClick={() => setRPage((p0) => p0 - 1)}>
-              Previous
-            </Button>
-            <span className="text-muted-foreground">
-              Page {rPage} of {jobPages}
-            </span>
-            <Button variant="secondary" size="sm" disabled={rPage >= jobPages} onClick={() => setRPage((p0) => p0 + 1)}>
-              Next
-            </Button>
-          </nav>
-        )}
-      </Card>
+                </thead>
+                <tbody>
+                  {jobRows.map((j) => {
+                    const t = targetById[String(j.scrapeTargetId)];
+                    return (
+                      <tr
+                        key={idOf(j)}
+                        className="cursor-pointer border-b border-border/60 hover:bg-muted/50"
+                        onClick={() => setJobId(idOf(j))}
+                        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setJobId(idOf(j))}
+                        tabIndex={0}
+                        aria-label="Open run details"
+                      >
+                        <td className="px-4 py-3">
+                          {t?.name || 'Deleted search'}
+                          {j.scheduleId && <span className="ml-2 text-xs text-muted-foreground">(scheduled)</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={srcOf(t) === 'reddit' ? 'warning' : 'primary'}>{srcOf(t) === 'reddit' ? 'Reddit' : 'Maps'}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={JOB_TONE[j.status] || 'default'}>{j.status === 'enriched' ? 'done' : j.status}</Badge>
+                          {j.error && <p className="mt-1 max-w-xs text-xs text-destructive">{j.error}</p>}
+                        </td>
+                        <td className="px-4 py-3">{j.found ?? 0}</td>
+                        <td className="px-4 py-3">{j.ingested ?? 0}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{formatDate(j.createdAt)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {jobPages > 1 && (
+            <nav className="flex items-center justify-between border-t border-border px-4 py-3 text-sm" aria-label="Runs pagination">
+              <Button variant="secondary" size="sm" disabled={rPage <= 1} onClick={() => setRPage((p0) => p0 - 1)}>
+                Previous
+              </Button>
+              <span className="text-muted-foreground">
+                Page {rPage} of {jobPages}
+              </span>
+              <Button variant="secondary" size="sm" disabled={rPage >= jobPages} onClick={() => setRPage((p0) => p0 + 1)}>
+                Next
+              </Button>
+            </nav>
+          )}
+        </Card>
+      )}
+
+      <SearchDetail
+        id={detailId}
+        onClose={() => setDetailId(null)}
+        onRun={(id) => run.mutate(id)}
+        onEdit={(t) => {
+          setDetailId(null);
+          openEdit(t);
+        }}
+        onOpenRun={(jid) => setJobId(jid)}
+      />
 
       <RunDetail jobId={jobId} onClose={() => setJobId(null)} />
 

@@ -60,7 +60,11 @@ describe('schedules API + runner', () => {
     const upd = await api('patch', `/${id}`).send({ frequency: { type: 'interval', everyMinutes: 45 }, perRun: 2 });
     expect(upd.body.data).toMatchObject({ perRun: 2, frequency: { type: 'interval', everyMinutes: 45 } });
 
-    expect((await api('get', '/')).body.data).toHaveLength(1);
+    const { ScrapeJob } = await import('../../src/models/ScrapeTarget.js');
+    await ScrapeJob.create({ workspaceId: ws._id, scheduleId: id, status: 'enriched', ingested: 4 });
+    const listed = (await api('get', '/')).body.data;
+    expect(listed).toHaveLength(1);
+    expect(listed[0].stats).toMatchObject({ runs: 1, leads: 4 });
     expect((await api('delete', `/${id}`)).status).toBe(200);
     expect((await api('get', '/')).body.data).toHaveLength(0);
   });
