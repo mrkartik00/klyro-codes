@@ -6,6 +6,9 @@ import { validateBody } from '../middleware/validate.js';
 import { listScoped, getScoped } from '../utils/query.js';
 import { Lead } from '../models/Lead.js';
 import { Organization } from '../models/Organization.js';
+
+const REGEX_SPECIALS = new Set('.*+?^${}()|[]\\/'.split(''));
+const escapeRegex = (str) => [...str].map((c) => (REGEX_SPECIALS.has(c) ? `\\${c}` : c)).join('');
 import { Contact } from '../models/Contact.js';
 import { Message } from '../models/Message.js';
 import { mergeLeads } from '../services/lead.service.js';
@@ -23,6 +26,12 @@ leadsRouter.get(
     if (source) filter.source = source;
     if (tag) filter.tags = tag;
     if (minScore) filter.score = { $gte: Number(minScore) };
+    // Free-text search on the business name (case-insensitive, regex-escaped).
+    if (req.query.q && String(req.query.q).trim()) {
+      const rx = new RegExp(escapeRegex(String(req.query.q).trim().slice(0, 80)), 'i');
+      const orgs = await Organization.find({ workspaceId: req.workspaceId, name: rx }).select('_id').limit(500).lean();
+      filter.organizationId = { $in: orgs.map((o) => o._id) };
+    }
     const result = await listScoped(Lead, {
       workspaceId: req.workspaceId,
       query: req.query,
