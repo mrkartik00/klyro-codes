@@ -363,8 +363,19 @@ export async function runRedditTarget({ workspaceId, target, job }) {
     emitToWorkspace(workspaceId, 'scrape:progress', { scrapeJobId: job._id, status: job.status, found: job.found, ingested: job.ingested });
   };
   await progress({ status: 'running', startedAt: new Date() });
+  // Without an API key Reddit allows only a few requests a minute, so each run
+  // covers the next 3 subreddits (round-robin); with a key, all of them.
+  const all = communities.length ? communities : DEFAULT_COMMUNITIES;
+  const perRun = env.REDDIT_CLIENT_ID ? all.length : Math.min(3, all.length);
+  const start = (target.filters?.cursor ?? 0) % all.length;
+  const batch = Array.from({ length: perRun }, (_, i) => all[(start + i) % all.length]);
   try {
-    for (const community of communities.length ? communities : DEFAULT_COMMUNITIES) {
+    if (target.save) {
+      target.filters = { ...(target.filters?.toObject?.() ?? target.filters ?? {}), cursor: (start + perRun) % all.length };
+      target.markModified?.('filters');
+      await target.save().catch(() => {});
+    }
+    for (const community of batch) {
       if (created >= limit) break;
       const board = Boolean(HIRING_BOARDS[community.toLowerCase()]);
       // One request per community (phrases OR-ed) keeps us well under Reddit's

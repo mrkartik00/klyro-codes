@@ -19,6 +19,7 @@ const scrapeTargetSchema = new mongoose.Schema({
     excludeChains: { type: Boolean, default: true },
     minIntent: { type: Number }, // reddit: 0-1, keep posts at/above this buying intent
     maxAgeDays: { type: Number }, // reddit: ignore older posts
+    cursor: { type: Number }, // reddit: next subreddit to scan (round-robin)
   },
   maxResults: { type: Number, default: 200 },
   schedule: { type: String, enum: ['once', 'daily', 'weekly'], default: 'once' },
