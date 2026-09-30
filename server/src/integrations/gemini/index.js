@@ -33,6 +33,9 @@ async function pace() {
  * per-minute limits; interactive calls (drafts, reply classification, forms)
  * skip the queue and never sleep on a 429 — they fall back instead.
  */
+/** True when every model is paused (quota) — callers can skip AI work early. */
+export const geminiPaused = () => [MODEL, FALLBACK_MODEL].every((m) => (coolUntil.get(m) || 0) > Date.now());
+
 export async function generateJson(prompt, { model = MODEL, background = false } = {}) {
   const models = [...new Set([model, FALLBACK_MODEL])];
   for (const m of models) {
@@ -41,6 +44,11 @@ export async function generateJson(prompt, { model = MODEL, background = false }
       if (background) await pace();
       const r = await generateJsonWith(prompt, m);
       if (r.ok) return r.value;
+      if (r.status === 429 && r.daily) {
+        // Daily free quota used up: stop trying this model for an hour.
+        coolUntil.set(m, Date.now() + 60 * 60 * 1000);
+        break;
+      }
       if (r.status === 429) {
         // Out of daily quota on the main model: skip it for 30 min. On the
         // last model, it's usually the per-minute limit, so wait and retry.
@@ -84,7 +92,9 @@ async function generateJsonWith(prompt, model) {
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       logger.error({ status: res.status, model, detail: detail.slice(0, 200) }, 'Gemini request failed');
-      return { ok: false, value: null, status: res.status, fallback: [404, 429, 500, 503].includes(res.status) };
+      if (res.status === 429 && /PerDay/i.test(detail)) logger.warn({ model }, 'Gemini daily free quota used up — pausing this model for 1 hour');
+      const daily = res.status === 429 && /PerDay|per day|daily/i.test(detail);
+      return { ok: false, value: null, status: res.status, daily, fallback: [404, 429, 500, 503].includes(res.status) };
     }
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
