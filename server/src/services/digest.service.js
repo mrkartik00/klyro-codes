@@ -20,14 +20,15 @@ export async function digestData({ workspaceId: wsId, hours = 24, top = 10 }) {
   const since = new Date(Date.now() - hours * 3600 * 1000);
   const base = { workspaceId, deletedAt: null, createdAt: { $gte: since } };
   const [reddit, maps, mapsCount, pending, jobs] = await Promise.all([
-    Lead.find({ ...base, source: 'reddit' }).sort({ score: -1 }).limit(20).lean(),
-    Lead.find({ ...base, source: { $ne: 'reddit' } })
+    // "People hiring": any lead that came from a post (Reddit, Freelancer, HN, tenders, social).
+    Lead.find({ ...base, 'intent.externalId': { $exists: true } }).sort({ score: -1 }).limit(25).lean(),
+    Lead.find({ ...base, 'intent.externalId': { $exists: false } })
       .sort({ score: -1, createdAt: -1 })
       .limit(top * 3)
       .populate('organizationId', 'name city category domain phone')
       .populate('primaryContactId', 'email emailStatus')
       .lean(),
-    Lead.countDocuments({ ...base, source: { $ne: 'reddit' } }),
+    Lead.countDocuments({ ...base, 'intent.externalId': { $exists: false } }),
     Approval.countDocuments({ workspaceId, status: 'pending' }),
     ScrapeJob.aggregate([
       { $match: { workspaceId, createdAt: { $gte: since } } },
@@ -50,11 +51,11 @@ export async function buildDigest({ workspaceId, hours = 24 }) {
   const admin = env.ADMIN_ORIGIN.replace(/\/$/, '');
   const runs = d.jobs.reduce((s, j) => s + j.n, 0);
   const failed = d.jobs.find((j) => j._id === 'failed')?.n ?? 0;
-  const lines = [`🌅 <b>Klyro — leads from the last ${hours}h</b>`, `${d.reddit.length} Reddit buyers · ${d.mapsCount} Maps leads · ${runs} searches run${failed ? ` (${failed} failed)` : ''}`, ''];
+  const lines = [`🌅 <b>Klyro — leads from the last ${hours}h</b>`, `${d.reddit.length} people hiring · ${d.mapsCount} new businesses · ${runs} searches run${failed ? ` (${failed} failed)` : ''}`, ''];
 
   if (d.reddit.length) {
-    lines.push('<b>🔥 Reddit — people hiring</b>');
-    for (const l of d.reddit.slice(0, 10)) {
+    lines.push('<b>🔥 People hiring (Reddit, Freelancer, HN, tenders, social)</b>');
+    for (const l of d.reddit.slice(0, 12)) {
       lines.push(
         `• <b>${Math.round((l.intent?.score ?? 0) * 100)}%</b> ${esc(cut(l.intent?.title, 90))}\n  ${esc(cut(l.intent?.need, 90))} · ${esc(l.intent?.community)}\n  <a href="${esc(l.sourceUrl)}">post</a> · <a href="${admin}/leads/${l._id}">lead</a>`,
       );

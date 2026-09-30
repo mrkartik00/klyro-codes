@@ -15,8 +15,8 @@ import { Organization } from '../models/Organization.js';
 import { Lead } from '../models/Lead.js';
 import { LeadSource } from '../models/LeadSource.js';
 import { Enrollment } from '../models/Enrollment.js';
-import { startScrapeJob, importLeadsCsv } from '../services/scrape.service.js';
-import { startRedditJob } from '../services/social.service.js';
+import { importLeadsCsv } from '../services/scrape.service.js';
+import { startTargetRun, sourceOf, sourceFilter } from '../services/sources.service.js';
 import { listWorkflows, setWorkflowActive, listExecutions, triggerWorkflow } from '../integrations/n8n/index.js';
 import { encrypt } from '../utils/crypto.js';
 import { writeAudit } from '../services/audit.service.js';
@@ -83,7 +83,7 @@ scrapeRouter.post(
     z.object({
       name: z.string().trim().min(1),
       group: z.string().trim().max(60).optional(),
-      source: z.enum(['maps', 'reddit']).default('maps'),
+      source: z.enum(['maps', 'reddit', 'freelancer', 'hackernews', 'tenders', 'bluesky', 'brave', 'x', 'companieshouse']).default('maps'),
       communities: z.array(z.string()).default([]),
       country: z.string().default('US'),
       cities: z.array(z.string()).default([]),
@@ -109,12 +109,12 @@ scrapeRouter.get(
       { $match: { workspaceId: new mongoose.Types.ObjectId(String(req.workspaceId)), scrapeTargetId: target._id } },
       { $group: { _id: null, runs: { $sum: 1 }, found: { $sum: '$found' }, leads: { $sum: '$ingested' } } },
     ]);
-    const src = target.source === 'reddit' ? 'reddit' : 'maps';
+    const src = sourceOf(target);
     const schedules = (await ScrapeSchedule.find({ workspaceId: req.workspaceId, deletedAt: null }).lean())
       .filter((sc) =>
         sc.mode === 'pick'
           ? (sc.targetIds || []).some((x) => String(x) === String(target._id))
-          : (sc.source === 'any' || sc.source === src) && (!(sc.groups || []).length || sc.groups.includes(target.group)),
+          : (sc.source === 'any' || sc.source === src || (sc.source === 'social' && src !== 'maps')) && (!(sc.groups || []).length || sc.groups.includes(target.group)),
       )
       .map((sc) => ({ _id: sc._id, name: sc.name, enabled: sc.enabled, nextRunAt: sc.nextRunAt }));
     return ok(res, { target, jobs, totals: totals || { runs: 0, found: 0, leads: 0 }, schedules });
@@ -143,7 +143,7 @@ scrapeRouter.post(
     if (!target) throw ApiError.notFound('Lead source not found');
     const args = { workspaceId: req.workspaceId, scrapeTargetId: req.params.id, createdBy: req.auth.userId };
     await ScrapeTarget.updateOne({ _id: target._id }, { $set: { lastRunAt: new Date() } });
-    return created(res, target.source === 'reddit' ? await startRedditJob(args) : await startScrapeJob(args));
+    return created(res, await startTargetRun(target, args));
   }),
 );
 // Edit / pause / resume a saved search (scheduled scans skip inactive ones).
@@ -202,7 +202,7 @@ scrapeRouter.get(
     if (req.query.status) filter.status = req.query.status === 'running' ? { $in: LIVE } : req.query.status;
     if (req.query.targetId) filter.scrapeTargetId = req.query.targetId;
     else if (req.query.source) {
-      const ids = await ScrapeTarget.find({ workspaceId: req.workspaceId, ...(req.query.source === 'maps' ? { source: { $ne: 'reddit' } } : { source: 'reddit' }) }).distinct('_id');
+      const ids = await ScrapeTarget.find({ workspaceId: req.workspaceId, ...sourceFilter(req.query.source) }).distinct('_id');
       filter.scrapeTargetId = { $in: ids };
     }
     const result = await listScoped(ScrapeJob, { workspaceId: req.workspaceId, query: req.query, filter, sort: { createdAt: -1 } });

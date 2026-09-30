@@ -245,19 +245,46 @@ export function heuristicIntent(post) {
   return Math.min(0.9, s);
 }
 
+export const PLATFORM_LABEL = {
+  reddit: 'Reddit',
+  freelancer: 'Freelancer.com',
+  hackernews: 'Hacker News',
+  tenders: 'public tender',
+  bluesky: 'Bluesky',
+  x: 'X (Twitter)',
+  linkedin: 'LinkedIn',
+  facebook: 'Facebook',
+  threads: 'Threads',
+  instagram: 'Instagram',
+  web: 'web',
+};
+const REPLY_STYLE = {
+  // Public reply under the post (default).
+  reply: 'a helpful public reply, 60-110 words, answer or advise first, mention that Klyro builds this only in the last sentence, no links, no emojis',
+  // Freelancer.com / marketplace bid.
+  bid: 'a bid proposal, 80-130 words: restate their need in one line, how you would build it (stack, 3-4 steps), a realistic timeline, one question that shows you read it; sign as Klyro; no emojis',
+  // Public tender.
+  tender: 'a short bid summary for the admin, 60-100 words: what the buyer wants, deadline, value, and the 2-3 points Klyro should stress in its response',
+  // Direct message (X/Bluesky/LinkedIn).
+  dm: 'a short friendly direct message, 40-70 words, reference their post, offer one concrete idea, ask if they want a quick quote; no links, no emojis',
+};
+
 function intentPrompt(post) {
   const body = redactPii(post.text).slice(0, 2500);
+  const platform = PLATFORM_LABEL[post.platform || 'reddit'] || post.platform;
+  const where = post.platform && post.platform !== 'reddit' ? `Where: ${post.communityLabel || platform}` : `Subreddit: r/${post.community}`;
+  const style = REPLY_STYLE[post.replyStyle || 'reply'];
   return [
     'You qualify leads for Klyro, an agency that builds websites, web apps and Android/iOS mobile apps for clients.',
     'We ONLY want people or businesses who want to HIRE and PAY someone (a freelancer, developer or agency) to build a website, web app or mobile app for them.',
-    'Classify the author of this public Reddit post. Return strict JSON:',
+    `Classify the author of this public ${platform} post. Return strict JSON:`,
     '{"role": one of ["buyer","diy","seller","job_seeker","other"],',
     ' "intent": number 0-1 (only for role "buyer": how likely they hire within weeks; otherwise 0),',
     ' "project": one of ["website","web_app","mobile_app","ecommerce","other"],',
     ' "need": string (max 15 words: what they want built),',
     ' "budget": string (stated budget, or ""),',
     ' "business": string (their business type, or ""),',
-    ' "reply": string (only for buyers: a helpful public reply, 60-110 words, answer or advise first, mention that Klyro builds this only in the last sentence, no links, no emojis; otherwise "")}',
+    ` "reply": string (only for buyers: ${style}; otherwise "")}`,
     'Roles:',
     '- buyer: wants someone else to build it and would pay (hiring posts, "looking for a developer/agency", "need an app built", asking for quotes or dev recommendations).',
     '- diy: wants to build it themselves, or only asks which platform/tool to use.',
@@ -265,7 +292,8 @@ function intentPrompt(post) {
     '- job_seeker: looking for a job, internship or paid work.',
     '- other: anything else.',
     `Title: ${post.title}`,
-    `Subreddit: r/${post.community}`,
+    where,
+    ...(post.budget ? [`Stated budget: ${post.budget}`] : []),
     `Post: <<<${body}>>>`,
   ].join('\n');
 }
@@ -273,8 +301,8 @@ function intentPrompt(post) {
 const REPLY_FALLBACK =
   "Happy to help. Before choosing anyone, write down the 3-4 things it must do (bookings, payments, logins), your budget range and timeline, and ask each developer for a similar project they've shipped. That makes quotes easy to compare. We build websites and mobile apps like this at Klyro if you'd like a quote.";
 
-export async function qualify(post) {
-  const ai = await generateJson(intentPrompt(post), { background: true }).catch(() => null);
+export async function qualify(post, { background = true } = {}) {
+  const ai = await generateJson(intentPrompt(post), { background }).catch(() => null);
   if (ai && typeof ai.role === 'string') {
     const buyer = ai.role === 'buyer';
     const need = [ai.need || post.title, ai.budget ? `budget ${ai.budget}` : ''].filter(Boolean).join(' · ');
@@ -310,15 +338,17 @@ export async function saveRedditLead({ workspaceId, post, q, targetId }) {
   const exists = await Lead.findOne({ workspaceId, 'intent.externalId': post.id }).select('_id').lean();
   if (exists) return { created: false, leadId: exists._id };
   return withTransaction(async (session) => {
-    const handle = `u/${post.author}`;
-    const profile = `https://www.reddit.com/user/${post.author}`;
+    const platform = post.platform || 'reddit';
+    const handle = post.handle || `u/${post.author}`;
+    const profile = post.authorUrl === undefined ? `https://www.reddit.com/user/${post.author}` : post.authorUrl;
+    const socials = profile ? { [platform]: profile } : {};
     const [org] = await Organization.create(
       [
         {
           workspaceId,
           name: `${PROJECT_LABEL[q.project] || 'Project'}: ${cap(q.need, 70)} (${handle})`,
           category: q.business || undefined,
-          socials: { reddit: profile },
+          socials,
         },
       ],
       { session, ordered: true },
@@ -334,14 +364,14 @@ export async function saveRedditLead({ workspaceId, post, q, targetId }) {
               email,
               name: post.author,
               emailStatus: 'unknown',
-              handles: { reddit: handle },
-              socials: { reddit: profile },
+              handles: { [platform]: handle },
+              socials,
             },
           },
           { upsert: true, new: true, session },
         )
       : (
-          await Contact.create([{ workspaceId, organizationId: org._id, name: post.author, handles: { reddit: handle }, socials: { reddit: profile } }], {
+          await Contact.create([{ workspaceId, organizationId: org._id, name: post.author, handles: { [platform]: handle }, socials }], {
             session,
             ordered: true,
           })
@@ -352,19 +382,19 @@ export async function saveRedditLead({ workspaceId, post, q, targetId }) {
           workspaceId,
           organizationId: org._id,
           primaryContactId: contact._id,
-          source: 'reddit',
+          source: platform,
           sourceUrl: post.url,
           stage: 'new',
           score: Math.round(q.intent * 100),
-          scoreBreakdown: { reasons: [`wants to hire · ${PROJECT_LABEL[q.project] || 'project'} · intent ${Math.round(q.intent * 100)}%${q.ai ? '' : ' (keyword estimate)'}`] },
-          tags: ['reddit', `r/${post.community}`.toLowerCase(), q.project].filter(Boolean),
+          scoreBreakdown: { reasons: [`${PLATFORM_LABEL[platform] || platform} · wants to hire · ${PROJECT_LABEL[q.project] || 'project'} · intent ${Math.round(q.intent * 100)}%${q.ai ? '' : ' (keyword estimate)'}`] },
+          tags: [platform, (post.communityLabel || `r/${post.community}`).toLowerCase(), q.project].filter(Boolean),
           notes: q.need,
           intent: {
             score: q.intent,
             need: cap(q.need, 200),
             title: cap(post.title, 300),
             text: cap(post.text, 4000),
-            community: `r/${post.community}`,
+            community: post.communityLabel || `r/${post.community}`,
             author: handle,
             postedAt: post.postedAt ? new Date(post.postedAt) : undefined,
             externalId: post.id,
@@ -373,7 +403,7 @@ export async function saveRedditLead({ workspaceId, post, q, targetId }) {
       ],
       { session, ordered: true },
     );
-    await LeadSource.create([{ workspaceId, leadId: lead._id, channel: 'reddit', reference: String(targetId ?? ''), raw: { id: post.id, url: post.url } }], {
+    await LeadSource.create([{ workspaceId, leadId: lead._id, channel: platform, reference: String(targetId ?? ''), raw: { id: post.id, url: post.url } }], {
       session,
       ordered: true,
     });
@@ -385,7 +415,7 @@ export async function saveRedditLead({ workspaceId, post, q, targetId }) {
             workspaceId,
             leadId: lead._id,
             stepOrder: 0,
-            channel: 'reddit',
+            channel: platform,
             status: 'pending',
             draft: { subject: cap(post.title, 200), body: q.reply, personalizationNotes: post.url },
           },
@@ -396,6 +426,9 @@ export async function saveRedditLead({ workspaceId, post, q, targetId }) {
     return { created: true, leadId: lead._id };
   });
 }
+
+/** Same as saveRedditLead, for any platform (post.platform). */
+export const saveIntentLead = (args) => saveRedditLead(args);
 
 /** Run one reddit lead source end-to-end, tracking progress on a ScrapeJob. */
 export async function runRedditTarget({ workspaceId, target, job }) {

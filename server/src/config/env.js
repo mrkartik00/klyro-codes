@@ -36,6 +36,13 @@ const schema = z.object({
   GEMINI_FALLBACK_MODEL: z.string().optional(),
   REDDIT_CLIENT_ID: z.string().optional(),
   REDDIT_CLIENT_SECRET: z.string().optional(),
+  // Lead sources beyond Reddit (all optional; a source without its key is skipped).
+  BSKY_HANDLE: z.string().optional(), // e.g. klyro.bsky.social
+  BSKY_APP_PASSWORD: z.string().optional(), // Bluesky → Settings → App passwords
+  BRAVE_API_KEY: z.string().optional(), // finds public LinkedIn / X posts via web search
+  X_BEARER_TOKEN: z.string().optional(), // official X API (pay-per-use)
+  X_MONTHLY_READ_CAP: z.coerce.number().int().default(3000), // hard cap on paid X post reads/month
+  SAM_API_KEY: z.string().optional(), // US federal tenders (sam.gov)
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   DIGEST_CRON: z.string().optional(), // morning digest time (default 07:30)
   DIGEST_TZ: z.string().optional(),

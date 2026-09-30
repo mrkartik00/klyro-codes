@@ -17,12 +17,18 @@ const contactSchema = new mongoose.Schema({
     reddit: String,
     instagram: String,
     facebook: String,
+    bluesky: String,
+    hackernews: String,
+    freelancer: String,
   },
   handles: {
     reddit: String,
     x: String,
     linkedin: String,
     instagram: String,
+    bluesky: String,
+    hackernews: String,
+    freelancer: String,
   },
 });
 contactSchema.plugin(basePlugin, { softDelete: true });

@@ -22,7 +22,7 @@ describe('morning digest', () => {
       intent: { score: 0.9, title: '[Hiring] Flutter dev for booking app', need: 'booking app', community: 'r/forhire', externalId: 't3_dig' },
     });
     const text = await buildDigest({ workspaceId: ws._id, hours: 24 });
-    expect(text).toContain('1 Reddit buyers · 1 Maps leads');
+    expect(text).toContain('1 people hiring · 1 new businesses');
     expect(text).toContain('[Hiring] Flutter dev for booking app');
     expect(text).toContain('Acme &lt;Roofing&gt;');
     expect(text).not.toContain('Old Co');

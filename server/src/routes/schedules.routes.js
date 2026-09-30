@@ -28,7 +28,7 @@ const fields = {
   frequency,
   timezone: z.string().trim().min(1).max(64),
   mode: z.enum(['group', 'pick']),
-  source: z.enum(['maps', 'reddit', 'any']),
+  source: z.enum([...['maps', 'reddit', 'freelancer', 'hackernews', 'tenders', 'bluesky', 'brave', 'x', 'companieshouse'], 'any', 'social']),
   groups: z.array(z.string().trim().max(60)).max(50),
   targetIds: z.array(z.string()).max(500),
   perRun: z.number().int().min(0).max(100),

@@ -9,8 +9,7 @@ import { CronExpressionParser } from 'cron-parser';
 import { logger } from '../config/logger.js';
 import { ScrapeSchedule } from '../models/ScrapeSchedule.js';
 import { ScrapeTarget, ScrapeJob } from '../models/ScrapeTarget.js';
-import { startScrapeJob } from './scrape.service.js';
-import { startRedditJob } from './social.service.js';
+import { sourceOf, sourceFilter, startTargetRun } from './sources.service.js';
 import { writeAudit } from './audit.service.js';
 
 const LIVE = ['queued', 'running', 'ingesting'];
@@ -100,8 +99,7 @@ export async function resolveTargets(schedule, { all = false } = {}) {
   if (schedule.mode === 'pick') filter = { ...base, _id: { $in: schedule.targetIds || [] } };
   else {
     filter = { ...base };
-    if (schedule.source === 'reddit') filter.source = 'reddit';
-    else if (schedule.source === 'maps') filter.source = { $ne: 'reddit' };
+    Object.assign(filter, sourceFilter(schedule.source));
     if (schedule.groups?.length) filter.group = { $in: schedule.groups };
   }
   const targets = await ScrapeTarget.find(filter).sort({ lastRunAt: 1, createdAt: 1 }).lean();
@@ -109,10 +107,9 @@ export async function resolveTargets(schedule, { all = false } = {}) {
   return all || !schedule.perRun ? targets : targets.slice(0, schedule.perRun);
 }
 
-const sourceOf = (t) => (t.source === 'reddit' ? 'reddit' : 'maps');
 
 async function sourceBusy(workspaceId, source) {
-  const ids = await ScrapeTarget.find({ workspaceId, ...(source === 'reddit' ? { source: 'reddit' } : { source: { $ne: 'reddit' } }) }).distinct('_id');
+  const ids = await ScrapeTarget.find({ workspaceId, ...sourceFilter(source) }).distinct('_id');
   return ScrapeJob.exists({ workspaceId, scrapeTargetId: { $in: ids }, status: { $in: LIVE }, updatedAt: { $gt: new Date(Date.now() - 45 * MIN) } });
 }
 
@@ -151,7 +148,7 @@ export async function fireSchedule(schedule, { actorId, manual = false } = {}) {
       }
       await ScrapeTarget.updateOne({ _id: t._id }, { $set: { lastRunAt: new Date() } });
       const args = { workspaceId, scrapeTargetId: t._id, createdBy: actorId, scheduleId: schedule._id, maxResults: schedule.maxResults || undefined };
-      const job = source === 'reddit' ? await startRedditJob({ ...args, wait: true }) : await startScrapeJob(args);
+      const job = await startTargetRun(t, args, { wait: true });
       result.started.push({ name: t.name, jobId: String(job._id) });
       await beat();
       if (source === 'maps') await waitForJob(job._id, 40 * MIN, beat);

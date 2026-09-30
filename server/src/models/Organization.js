@@ -26,6 +26,9 @@ const organizationSchema = new mongoose.Schema({
     youtube: String,
     tiktok: String,
     reddit: String,
+    bluesky: String,
+    hackernews: String,
+    freelancer: String,
   },
 });
 organizationSchema.plugin(basePlugin, { softDelete: true });
