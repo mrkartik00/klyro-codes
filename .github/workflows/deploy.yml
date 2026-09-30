@@ -41,6 +41,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4 # for infra/scripts/apply-env.sh
       - name: Add SSH key
         run: |
           mkdir -p ~/.ssh
