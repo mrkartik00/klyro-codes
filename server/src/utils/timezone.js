@@ -26,7 +26,8 @@ export function isWithinSendWindow(date, { startHour, endHour, businessDaysOnly 
   const wd = weekdayInTz(date, timeZone);
   if (businessDaysOnly && WEEKEND.has(wd)) return false;
   const hour = Number(
-    new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', hour12: false }).format(date),
+    // hourCycle h23: with hour12:false V8 formats midnight as "24".
+    new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', hourCycle: 'h23' }).format(date),
   );
   return hour >= startHour && hour < endHour;
 }
