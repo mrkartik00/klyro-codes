@@ -8,7 +8,7 @@ import { PageHeader } from '../components/PageHeader.jsx';
 import { Dialog } from '../components/ui/Dialog.jsx';
 import { Card, Button, Input, Label, Select, Badge, Spinner, EmptyState, Textarea } from '../components/ui/index.jsx';
 
-const EMPTY = { source: 'maps', name: '', categories: '', cities: '', country: 'US', maxResults: 100, hasWebsite: 'any', minRating: '', communities: 'smallbusiness, Entrepreneur, startups, web_design, forhire', keywords: 'need a website, looking for a developer, build an app, website for my business', minIntent: 55, maxAgeDays: 14 };
+const EMPTY = { source: 'maps', name: '', categories: '', cities: '', country: 'US', maxResults: 100, hasWebsite: 'any', minRating: '', communities: 'forhire, b2bforhire, hireaprogrammer, startups, Entrepreneur, smallbusiness, ecommerce, SaaS', keywords: 'looking for a developer, hire a developer, need an app built, looking for an agency, need a website built, app development company, developer to build', minIntent: 55, maxAgeDays: 14 };
 const RUNNING = new Set(['queued', 'running', 'ingesting']);
 const JOB_TONE = { queued: 'default', running: 'warning', ingesting: 'warning', enriched: 'success', failed: 'destructive' };
 
@@ -248,7 +248,7 @@ export default function Targets() {
             <div className="grid grid-cols-2 gap-2" role="radiogroup">
               {[
                 ['maps', 'Google Maps', 'Local businesses by type & city'],
-                ['reddit', 'Reddit', 'People asking for a website/app'],
+                ['reddit', 'Reddit', 'People hiring someone to build a website or app'],
               ].map(([v, label, hint]) => (
                 <label
                   key={v}
@@ -265,9 +265,12 @@ export default function Targets() {
           {form.source === 'reddit' ? (
             <>
               <div>
-                <Label htmlFor="keywords">Phrases people use *</Label>
+                <Label htmlFor="keywords">Phrases buyers use *</Label>
                 <Textarea id="keywords" rows={2} value={form.keywords} onChange={set('keywords')} />
-                <p className="mt-1 text-xs text-muted-foreground">Comma-separated. Each phrase is searched in each subreddit.</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Comma-separated, searched in each subreddit. Hiring boards (r/forhire, r/b2bforhire, r/hireaprogrammer) are read
+                  in full — only [Hiring] posts for websites/apps are kept.
+                </p>
               </div>
               <div>
                 <Label htmlFor="communities">Subreddits *</Label>
@@ -288,8 +291,9 @@ export default function Targets() {
                 </div>
               </div>
               <p className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-                Runs automatically every 30 minutes once saved. AI reads each post, keeps real buyers, and drafts a helpful reply
-                for you to post yourself (Approvals). Leads include the post link and the author&apos;s profile.
+                Runs every 30 minutes. Only people who want to <strong>hire</strong> someone to build a website, web app or
+                Android/iOS app are kept — developers, agencies, job seekers and do-it-yourself questions are dropped. Each lead
+                includes the post, the author&apos;s profile and a reply draft for you to post (Approvals).
               </p>
             </>
           ) : (

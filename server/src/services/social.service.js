@@ -1,10 +1,14 @@
-// Social listening: find people publicly asking for what Klyro sells.
+// Social listening: find people who want to HIRE someone to build a website,
+// web app or Android/iOS app — not developers/agencies looking for clients.
 //
-// Reddit — reads public search feeds (RSS) for the subreddits/keywords on a
-// "reddit" lead source, filters for buying intent (keywords, then Gemini),
-// and turns each good post into a lead + a drafted reply in Approvals. Replies
-// are posted BY YOU on Reddit (no automated posting — that gets accounts
-// banned). If REDDIT_CLIENT_ID/SECRET are set, the official OAuth API is used.
+// Reddit — two kinds of sources:
+//   • hiring boards (r/forhire, r/b2bforhire, …): newest posts, [Hiring] only
+//   • general subs (r/startups, r/Entrepreneur, …): searched with buyer phrases
+// Each post passes a strict keyword filter (builds something we make + wants
+// to hire + not a seller/job seeker), then Gemini classifies the author's role;
+// only "buyer" posts become leads, with a drafted reply in Approvals that YOU
+// post (no automated posting). If REDDIT_CLIENT_ID/SECRET are set, the
+// official OAuth API is used; otherwise public RSS feeds.
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { generateJson } from '../integrations/gemini/index.js';
@@ -21,11 +25,39 @@ import { emitToWorkspace } from '../socket/index.js';
 const UA = 'klyro-lead-finder/1.0 (+https://klyro.codes; admin@klyro.codes)';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// People looking to BUY help, not people selling it.
-const BUY_SIGNALS =
-  /\b(need(ed|s)?|looking for|recommend(ation)?s?|anyone (know|built|use)|hire|hiring|who (can|could|would)|help (me )?(with|build|make|find)|quote|cost|how much|budget|agency|freelancer|developer|designer|build (me|us|a)|make (me|us|a)|redesign|website|web ?site|landing page|app|online store|booking|shopify|wordpress|wix|squarespace|seo)\b/i;
-const SELLER_SIGNALS =
-  /(\[for hire\]|\[offer\]|i('| a)m a (web )?(developer|designer|freelancer)|we are an? (agency|studio)|my agency|dm me for|check out my (portfolio|services)|i (build|make|design) websites|hire me)/i;
+// What we build (word-bounded: "app" must not match "appointment").
+export const BUILD_RE =
+  /\b(website|web ?site|web ?app|webapp|landing page|mobile app|android( app)?|ios( app)?|iphone app|ipad app|react native|flutter|app developer|app development|app dev|web developer|web development|web dev|full.?stack|shopify|woocommerce|wordpress|webflow|e-?commerce|online store|booking (system|site|app)|mvp|saas|customer portal|dashboard)\b|\b(an?|my|our|the) ([a-z-]+ ){0,2}apps?\b|\bapps? (like|for)\b/i;
+
+// Someone who wants to PAY someone else to build it.
+export const HIRE_RE =
+  /(\[hiring\]|\[task\]|\[paid\]|\b(hiring|to hire|want to hire|looking to hire|looking for (a|an|someone|developers?|an? agency|freelancers?|a dev|a team)|need (a|an|someone|developers?|help building|help to build|it built|this built)|seeking (a|an)? ?(developer|agency|freelancer)|recommend (a|an)? ?(developer|agency|freelancer|dev shop)|who can (build|make|develop)|anyone (who can|able to) (build|make|develop)|quote (for|to) (build|develop|make)|how much (would|does|to|will) (it )?cost to (build|make|develop)|paying|will pay|dev shop|development (agency|company|partner)|outsourc(e|ing))\b)/i;
+
+// Developers, agencies and job seekers — the people we compete with.
+export const SELLER_RE =
+  /(\[for ?hire\]|\[offer\]|\[offering\]|\bhire me\b|\bdm me\b|how (do|can|did|to) (i|you|we)? ?(get|find|land|attract) (more )?(clients|customers|leads)|(looking for|finding|find|get(ting)?|land(ing)?) (new |more |first )?clients|my (agency|portfolio|services|studio)|\bour (agency|services)\b|\bwe (build|develop|design|create|make) (websites|apps|web|mobile)|i('?m| am) an? (freelance |professional |experienced |senior |junior |self.taught )?(web |app |mobile |full.?stack |front.?end |back.?end |software |react |flutter |ios |android |wordpress |shopify )?(developer|designer|dev|engineer|agency|freelancer|programmer)|offering (my )?(web|app|development|design) services|free work for (my )?portfolio|available for (work|projects|hire)|open (to|for) (work|projects|new projects)|job seeker|looking for (a )?(job|work|internship|gig|remote work))/i;
+
+// Hiring boards: only posts tagged as hiring count. Keys are lower-case.
+export const HIRING_BOARDS = {
+  forhire: /\[(hiring|hire)\]/i,
+  freelance_forhire: /\[(hiring|hire)\]/i,
+  b2bforhire: /\[(hiring|hire)\]/i,
+  hireaprogrammer: /./,
+  slavelabour: /\[(task|hiring)\]/i,
+  donedirtcheap: /\[(task|hiring)\]/i,
+  jobbit: /hiring/i,
+};
+
+export const DEFAULT_COMMUNITIES = ['forhire', 'b2bforhire', 'hireaprogrammer', 'startups', 'Entrepreneur', 'smallbusiness', 'ecommerce', 'SaaS'];
+export const DEFAULT_QUERIES = [
+  'looking for a developer',
+  'hire a developer',
+  'need an app built',
+  'looking for an agency',
+  'need a website built',
+  'app development company',
+  'developer to build',
+];
 
 export function decodeEntities(s) {
   return String(s ?? '')
@@ -86,95 +118,135 @@ async function redditToken() {
   return oauth.token;
 }
 
-/** Search one subreddit for a keyword (newest first). */
-export async function searchReddit({ community, query, maxAgeDays = 14 }) {
-  const t = maxAgeDays <= 1 ? 'day' : maxAgeDays <= 7 ? 'week' : maxAgeDays <= 31 ? 'month' : 'year';
+const fromApi = ({ data: p }) => ({
+  id: `t3_${p.id}`,
+  title: p.title,
+  author: p.author,
+  url: `https://www.reddit.com${p.permalink}`,
+  community: p.subreddit,
+  postedAt: new Date(p.created_utc * 1000).toISOString(),
+  text: String(p.selftext || '').slice(0, 4000),
+});
+
+async function redditGet(apiPath, rssPath) {
   const token = await redditToken().catch((err) => {
     logger.warn({ err }, 'reddit oauth failed; falling back to RSS');
     return null;
   });
-  const q = new URLSearchParams({ q: query, restrict_sr: '1', sort: 'new', t, limit: '50' });
   if (token) {
-    const res = await fetch(`https://oauth.reddit.com/r/${encodeURIComponent(community)}/search?${q}`, {
+    const res = await fetch(`https://oauth.reddit.com${apiPath}`, {
       headers: { authorization: `Bearer ${token}`, 'user-agent': UA },
       signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) throw new Error(`Reddit API ${res.status}`);
-    const d = await res.json();
-    return (d?.data?.children || []).map(({ data: p }) => ({
-      id: `t3_${p.id}`,
-      title: p.title,
-      author: p.author,
-      url: `https://www.reddit.com${p.permalink}`,
-      community: p.subreddit,
-      postedAt: new Date(p.created_utc * 1000).toISOString(),
-      text: String(p.selftext || '').slice(0, 4000),
-    }));
+    return ((await res.json())?.data?.children || []).map(fromApi);
   }
-  const res = await fetch(`https://www.reddit.com/r/${encodeURIComponent(community)}/search.rss?${q}`, {
-    headers: { 'user-agent': UA },
-    signal: AbortSignal.timeout(15000),
-  });
+  const res = await fetch(`https://www.reddit.com${rssPath}`, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`Reddit feed ${res.status}`);
   return parseRedditFeed(await res.text());
 }
 
-/** Cheap first pass: a buyer asking for help, recent, not a seller/self-promo. */
-export function looksLikeBuyer(post, { maxAgeDays = 14 } = {}) {
-  const text = `${post.title}\n${post.text}`;
-  if (!post.author || ['[deleted]', 'AutoModerator'].includes(post.author)) return false;
-  if (SELLER_SIGNALS.test(text)) return false;
-  if (!BUY_SIGNALS.test(text)) return false;
-  const age = (Date.now() - new Date(post.postedAt).getTime()) / 864e5;
-  return !(Number.isFinite(age) && age > maxAgeDays);
+/** Search one subreddit for a phrase (newest first). */
+export async function searchReddit({ community, query, maxAgeDays = 14 }) {
+  const t = maxAgeDays <= 1 ? 'day' : maxAgeDays <= 7 ? 'week' : maxAgeDays <= 31 ? 'month' : 'year';
+  const q = new URLSearchParams({ q: query, restrict_sr: '1', sort: 'new', t, limit: '50' });
+  const sub = encodeURIComponent(community);
+  return redditGet(`/r/${sub}/search?${q}`, `/r/${sub}/search.rss?${q}`);
+}
+
+/** Newest posts in a community (used for hiring boards). */
+export async function latestReddit({ community }) {
+  const sub = encodeURIComponent(community);
+  return redditGet(`/r/${sub}/new?limit=100`, `/r/${sub}/new.rss?limit=100`);
 }
 
 /**
- * Heuristic intent score used only when Gemini is unavailable. Deliberately
- * strict: a clear request (need/looking for/hire/recommend) AND something we
- * build (website/app/store/booking). Anything else scores low and is dropped.
+ * Cheap first pass before the AI: recent, about something we build, the author
+ * wants to hire someone (or it's a [Hiring] post on a hiring board), and it's
+ * not a developer/agency/job seeker.
  */
+export function looksLikeBuyer(post, { maxAgeDays = 14 } = {}) {
+  const text = `${post.title}\n${post.text}`;
+  if (!post.author || ['[deleted]', 'AutoModerator'].includes(post.author)) return false;
+  const age = (Date.now() - new Date(post.postedAt).getTime()) / 864e5;
+  if (Number.isFinite(age) && age > maxAgeDays) return false;
+  if (SELLER_RE.test(text)) return false;
+  if (!BUILD_RE.test(text)) return false;
+  const board = HIRING_BOARDS[String(post.community || '').toLowerCase()];
+  if (board) return board.test(post.title);
+  return HIRE_RE.test(text);
+}
+
+/** Keyword score, used only when Gemini is unavailable. Strict by design. */
 export function heuristicIntent(post) {
-  const t = `${post.title} ${post.text}`.toLowerCase();
-  const asks = /\b(i need|we need|need (a|an|someone|help)|looking for (a|an|someone)|want to hire|hiring|can anyone recommend|recommend (a|an|someone)|who can (build|make|do))\b/.test(t);
-  const product = /\b(website|web site|web app|mobile app|landing page|online store|e-?commerce|booking (system|site|page)|shopify store|wordpress site)\b/.test(t);
-  if (!asks || !product) return 0.2;
+  const t = `${post.title}\n${post.text}`;
+  if (SELLER_RE.test(t) || !BUILD_RE.test(t) || !HIRE_RE.test(t)) return 0.15;
   let s = 0.6;
-  if (/\b(budget|quote|how much|cost|price|\$\s?\d)/.test(t)) s += 0.15;
-  if (/\b(my (business|shop|store|restaurant|clinic|salon|bakery|company))\b/.test(t)) s += 0.1;
+  if (/\[(hiring|task|paid)\]/i.test(post.title)) s += 0.1;
+  if (/(\bbudget\b|\bpaying\b|\bwill pay\b|\$\s?\d|\busd\b|£\s?\d|per hour|\/hr\b|fixed price)/i.test(t)) s += 0.15;
+  if (/\b(my|our) (business|company|startup|shop|store|restaurant|clinic|salon|brand)\b/i.test(t)) s += 0.05;
   return Math.min(0.9, s);
 }
 
 function intentPrompt(post) {
-  return `You qualify leads for Klyro, a studio that builds websites, web apps and online stores for small businesses (US/UK).
-Read this public Reddit post and decide if the author is a potential CLIENT who needs something Klyro builds.
-Return strict JSON:
-{"intent": number 0-1 (how likely they would pay for a website/app soon),
- "need": string (max 15 words, what they want),
- "business": string (their business type if stated, else ""),
- "reply": string (a genuinely helpful public reply, 60-110 words, answer their question first, no hard sell, mention you build these at Klyro only in the last sentence, no links, no emojis)}
-Score 0.1 or lower if they are a developer/agency, just venting, a student project, or not about building something.
-Post title: ${post.title}
-Subreddit: r/${post.community}
-Post: """${redactPii(post.text).slice(0, 2500)}"""`;
+  const body = redactPii(post.text).slice(0, 2500);
+  return [
+    'You qualify leads for Klyro, an agency that builds websites, web apps and Android/iOS mobile apps for clients.',
+    'We ONLY want people or businesses who want to HIRE and PAY someone (a freelancer, developer or agency) to build a website, web app or mobile app for them.',
+    'Classify the author of this public Reddit post. Return strict JSON:',
+    '{"role": one of ["buyer","diy","seller","job_seeker","other"],',
+    ' "intent": number 0-1 (only for role "buyer": how likely they hire within weeks; otherwise 0),',
+    ' "project": one of ["website","web_app","mobile_app","ecommerce","other"],',
+    ' "need": string (max 15 words: what they want built),',
+    ' "budget": string (stated budget, or ""),',
+    ' "business": string (their business type, or ""),',
+    ' "reply": string (only for buyers: a helpful public reply, 60-110 words, answer or advise first, mention that Klyro builds this only in the last sentence, no links, no emojis; otherwise "")}',
+    'Roles:',
+    '- buyer: wants someone else to build it and would pay (hiring posts, "looking for a developer/agency", "need an app built", asking for quotes or dev recommendations).',
+    '- diy: wants to build it themselves, or only asks which platform/tool to use.',
+    '- seller: a developer, designer, agency or freelancer offering services, sharing work, or asking how to get clients.',
+    '- job_seeker: looking for a job, internship or paid work.',
+    '- other: anything else.',
+    `Title: ${post.title}`,
+    `Subreddit: r/${post.community}`,
+    `Post: <<<${body}>>>`,
+  ].join('\n');
 }
 
-async function qualify(post) {
+const REPLY_FALLBACK =
+  "Happy to help. Before choosing anyone, write down the 3-4 things it must do (bookings, payments, logins), your budget range and timeline, and ask each developer for a similar project they've shipped. That makes quotes easy to compare. We build websites and mobile apps like this at Klyro if you'd like a quote.";
+
+export async function qualify(post) {
   const ai = await generateJson(intentPrompt(post)).catch(() => null);
-  if (ai && typeof ai.intent === 'number') {
-    return { intent: Math.max(0, Math.min(1, ai.intent)), need: ai.need || post.title, business: ai.business || '', reply: ai.reply || '', ai: true };
+  if (ai && typeof ai.role === 'string') {
+    const buyer = ai.role === 'buyer';
+    const need = [ai.need || post.title, ai.budget ? `budget ${ai.budget}` : ''].filter(Boolean).join(' · ');
+    return {
+      intent: buyer ? Math.max(0, Math.min(1, Number(ai.intent) || 0)) : 0,
+      role: ai.role,
+      project: ai.project || 'other',
+      need,
+      business: ai.business || '',
+      reply: buyer ? ai.reply || REPLY_FALLBACK : '',
+      ai: true,
+    };
   }
+  const intent = heuristicIntent(post);
+  const buyer = intent >= 0.55;
   return {
-    intent: heuristicIntent(post),
+    intent,
+    role: buyer ? 'buyer' : 'other',
+    project: /android|ios|mobile app|iphone|flutter|react native/i.test(`${post.title} ${post.text}`) ? 'mobile_app' : 'website',
     need: post.title,
     business: '',
-    reply: `Happy to help — for something like this I'd start by listing the 3-4 things the site must do (e.g. bookings, payments, contact form), then pick a platform that fits your budget and who will update it. If you'd like a second opinion or a quote, we build sites like this at Klyro.`,
+    reply: buyer ? REPLY_FALLBACK : '',
     ai: false,
   };
 }
 
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,24}/i;
 const cap = (s, n) => String(s ?? '').slice(0, n);
+const PROJECT_LABEL = { website: 'Website', web_app: 'Web app', mobile_app: 'Mobile app', ecommerce: 'Online store', other: 'Project' };
 
 /** Save one qualified post as a lead (+ contact, + reply draft). Idempotent per post. */
 export async function saveRedditLead({ workspaceId, post, q, targetId }) {
@@ -184,17 +256,39 @@ export async function saveRedditLead({ workspaceId, post, q, targetId }) {
     const handle = `u/${post.author}`;
     const profile = `https://www.reddit.com/user/${post.author}`;
     const [org] = await Organization.create(
-      [{ workspaceId, name: `${handle} — ${cap(q.business || q.need, 60)}`, category: q.business || undefined, socials: { reddit: profile } }],
+      [
+        {
+          workspaceId,
+          name: `${PROJECT_LABEL[q.project] || 'Project'}: ${cap(q.need, 70)} (${handle})`,
+          category: q.business || undefined,
+          socials: { reddit: profile },
+        },
+      ],
       { session, ordered: true },
     );
     const email = (post.text.match(EMAIL_RE) || [])[0]?.toLowerCase();
     const contact = email
       ? await Contact.findOneAndUpdate(
           { workspaceId, email },
-          { $setOnInsert: { workspaceId, organizationId: org._id, email, name: post.author, emailStatus: 'unknown', handles: { reddit: handle }, socials: { reddit: profile } } },
+          {
+            $setOnInsert: {
+              workspaceId,
+              organizationId: org._id,
+              email,
+              name: post.author,
+              emailStatus: 'unknown',
+              handles: { reddit: handle },
+              socials: { reddit: profile },
+            },
+          },
           { upsert: true, new: true, session },
         )
-      : (await Contact.create([{ workspaceId, organizationId: org._id, name: post.author, handles: { reddit: handle }, socials: { reddit: profile } }], { session, ordered: true }))[0];
+      : (
+          await Contact.create([{ workspaceId, organizationId: org._id, name: post.author, handles: { reddit: handle }, socials: { reddit: profile } }], {
+            session,
+            ordered: true,
+          })
+        )[0];
     const [lead] = await Lead.create(
       [
         {
@@ -205,8 +299,8 @@ export async function saveRedditLead({ workspaceId, post, q, targetId }) {
           sourceUrl: post.url,
           stage: 'new',
           score: Math.round(q.intent * 100),
-          scoreBreakdown: { reasons: [`reddit intent ${Math.round(q.intent * 100)}%${q.ai ? '' : ' (keyword estimate)'}`] },
-          tags: ['reddit', `r/${post.community}`.toLowerCase()],
+          scoreBreakdown: { reasons: [`wants to hire · ${PROJECT_LABEL[q.project] || 'project'} · intent ${Math.round(q.intent * 100)}%${q.ai ? '' : ' (keyword estimate)'}`] },
+          tags: ['reddit', `r/${post.community}`.toLowerCase(), q.project].filter(Boolean),
           notes: q.need,
           intent: {
             score: q.intent,
@@ -229,7 +323,16 @@ export async function saveRedditLead({ workspaceId, post, q, targetId }) {
     // A reply you post yourself on Reddit (shown in Approvals with Open/Copy).
     if (q.reply) {
       await Approval.create(
-        [{ workspaceId, leadId: lead._id, stepOrder: 0, channel: 'reddit', status: 'pending', draft: { subject: cap(post.title, 200), body: q.reply, personalizationNotes: post.url } }],
+        [
+          {
+            workspaceId,
+            leadId: lead._id,
+            stepOrder: 0,
+            channel: 'reddit',
+            status: 'pending',
+            draft: { subject: cap(post.title, 200), body: q.reply, personalizationNotes: post.url },
+          },
+        ],
         { session, ordered: true },
       );
     }
@@ -247,7 +350,6 @@ export async function runRedditTarget({ workspaceId, target, job }) {
   const seen = new Set();
   let found = 0;
   let created = 0;
-  let checked = 0;
   const progress = async (patch) => {
     if (!job) return;
     Object.assign(job, patch);
@@ -256,13 +358,15 @@ export async function runRedditTarget({ workspaceId, target, job }) {
   };
   await progress({ status: 'running', startedAt: new Date() });
   try {
-    for (const community of communities.length ? communities : ['smallbusiness']) {
-      for (const query of queries.length ? queries : ['need a website']) {
+    for (const community of communities.length ? communities : DEFAULT_COMMUNITIES) {
+      const board = Boolean(HIRING_BOARDS[community.toLowerCase()]);
+      for (const query of board ? ['(newest posts)'] : queries.length ? queries : DEFAULT_QUERIES) {
+        if (created >= limit) break;
         let posts = [];
         try {
-          posts = await searchReddit({ community, query, maxAgeDays });
+          posts = board ? await latestReddit({ community }) : await searchReddit({ community, query, maxAgeDays });
         } catch (err) {
-          logger.warn({ err, community, query }, 'reddit search failed');
+          logger.warn({ err, community, query }, 'reddit fetch failed');
         }
         for (const post of posts) {
           if (seen.has(post.id) || created >= limit) continue;
@@ -270,9 +374,8 @@ export async function runRedditTarget({ workspaceId, target, job }) {
           if (!looksLikeBuyer(post, { maxAgeDays })) continue;
           if (await Lead.exists({ workspaceId, 'intent.externalId': post.id })) continue;
           found += 1;
-          checked += 1;
           const q = await qualify(post);
-          if (q.intent < minIntent) continue;
+          if (q.role !== 'buyer' || q.intent < minIntent) continue;
           const r = await saveRedditLead({ workspaceId, post, q, targetId: target._id });
           if (r.created) created += 1;
         }
@@ -281,7 +384,7 @@ export async function runRedditTarget({ workspaceId, target, job }) {
       }
     }
     await progress({ status: 'enriched', found, ingested: created, finishedAt: new Date() });
-    return { checked, found, created };
+    return { found, created };
   } catch (err) {
     await progress({ status: 'failed', error: String(err.message).slice(0, 500), finishedAt: new Date() });
     throw err;
