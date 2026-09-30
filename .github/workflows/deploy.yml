@@ -11,6 +11,9 @@ on:
 
 # Deploys to the VPS over SSH: pull, install, build frontends, reload the API.
 # Requires repo secrets: SSH_HOST, SSH_PORT, SSH_USER, SSH_KEY (klyro_deploy private key).
+# Config: SERVER_ENV (server/.env) and N8N_ENV (/etc/klyro/n8n.env) are the source
+# of truth — each deploy validates them and writes them to the VPS when changed.
+# After editing an env file on the server, run infra/scripts/push-env-secrets.sh.
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -23,6 +26,16 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      - name: Validate production config (SERVER_ENV)
+        env:
+          SERVER_ENV: ${{ secrets.SERVER_ENV }}
+        run: |
+          if [ -z "$SERVER_ENV" ]; then echo "SERVER_ENV secret missing — the VPS keeps its current .env"; exit 0; fi
+          umask 077
+          printf '%s\n' "$SERVER_ENV" > "$RUNNER_TEMP/server.env"
+          # Same zod schema the API uses at boot: fails the deploy on a missing/invalid variable.
+          node --env-file="$RUNNER_TEMP/server.env" --input-type=module -e "await import('./server/src/config/env.js'); console.log('SERVER_ENV valid')"
+          rm -f "$RUNNER_TEMP/server.env"
 
   deploy:
     needs: test
@@ -34,6 +47,24 @@ jobs:
           echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+      - name: Sync env files from GitHub secrets
+        env:
+          SERVER_ENV: ${{ secrets.SERVER_ENV }}
+          N8N_ENV: ${{ secrets.N8N_ENV }}
+        run: |
+          SSH="ssh -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
+          # Values go over stdin, never on a command line. The script is copied first
+          # because it may be new in this commit.
+          $SSH 'mkdir -p /opt/klyro-bin && cat > /opt/klyro-bin/apply-env.sh && chmod 700 /opt/klyro-bin/apply-env.sh' < infra/scripts/apply-env.sh
+          echo "SERVER_ENV_CHANGED=no" >> "$GITHUB_ENV"; echo "N8N_ENV_CHANGED=no" >> "$GITHUB_ENV"
+          if [ -n "$SERVER_ENV" ]; then
+            r=$(printf '%s\n' "$SERVER_ENV" | $SSH 'bash /opt/klyro-bin/apply-env.sh /var/www/klyro/server/.env')
+            echo "server/.env: $r"; [ "$r" = changed ] && echo "SERVER_ENV_CHANGED=yes" >> "$GITHUB_ENV"
+          fi
+          if [ -n "$N8N_ENV" ]; then
+            r=$(printf '%s\n' "$N8N_ENV" | $SSH 'bash /opt/klyro-bin/apply-env.sh /etc/klyro/n8n.env')
+            echo "n8n.env: $r"; [ "$r" = changed ] && echo "N8N_ENV_CHANGED=yes" >> "$GITHUB_ENV"
+          fi
       - name: Pull, build & reload on VPS
         run: |
           ssh -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
@@ -53,5 +84,8 @@ jobs:
             # Re-import n8n workflows only when they changed (restarts the n8n main process).
             if [ -x /opt/n8n/node/bin/node ] && git diff --name-only "$OLD" HEAD | grep -q "^n8n/workflows/"; then
               bash infra/scripts/n8n-sync.sh
+            elif [ "'"$N8N_ENV_CHANGED"'" = yes ]; then
+              # n8n reads its env at start: restart main + workers to pick up changes.
+              pm2 restart klyro-n8n klyro-n8n-worker-1 klyro-n8n-worker-2 --update-env
             fi
           '
