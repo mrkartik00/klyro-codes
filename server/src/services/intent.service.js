@@ -309,24 +309,62 @@ export function authorFromUrl(url) {
   }
 }
 
+// BRAVE_API_KEY may hold several keys (comma-separated); each free key has
+// ~$5 credit ≈ 1,000 searches/month, so they are used one after another.
+export const BRAVE_PER_KEY_CAP = 950;
+export const braveKeys = () => String(env.BRAVE_API_KEY || '').split(',').map((k) => k.trim()).filter(Boolean);
+export async function braveUsage(workspaceId) {
+  const keys = braveKeys();
+  const used = await Promise.all(keys.map((_, i) => usage(workspaceId, `brave${i}`)));
+  return { used: used.reduce((a, b) => a + b, 0), cap: keys.length * BRAVE_PER_KEY_CAP, perKey: used };
+}
+const exhausted = new Set(); // keys that returned 402/429 this process
+
+async function braveSearch(workspaceId, qs) {
+  const keys = braveKeys();
+  for (let i = 0; i < keys.length; i += 1) {
+    if (exhausted.has(keys[i]) || (await usage(workspaceId, `brave${i}`)) >= BRAVE_PER_KEY_CAP) continue;
+    const res = await fetch(`https://api.search.brave.com/res/v1/web/search?${qs}`, {
+      headers: { 'x-subscription-token': keys[i], accept: 'application/json', 'user-agent': UA },
+      signal: AbortSignal.timeout(20000),
+    }).catch(() => null);
+    if (!res) return null;
+    await usage(workspaceId, `brave${i}`, 1);
+    if (res.ok) return res.json();
+    if ([401, 402, 403, 429].includes(res.status)) {
+      exhausted.add(keys[i]); // out of credit / invalid / rate limited → next key
+      logger.warn({ status: res.status, key: i }, 'brave key unavailable, trying next');
+      continue;
+    }
+    return null;
+  }
+  throw new Error('All Brave keys are out of monthly credit');
+}
+
 export async function fetchBrave({ workspaceId, keywords, filters = {} }) {
-  const sites = filters.sites?.length ? filters.sites : ['linkedin.com/posts', 'x.com'];
-  const cap = filters.monthlyCap ?? 900; // $5 free credit ≈ 1,000 queries
+  // sites: [] or ['*'] = the whole web (e.g. RFP pages); default LinkedIn + X.
+  const sites = !filters.sites ? ['linkedin.com/posts', 'x.com'] : filters.sites.length && !filters.sites.includes('*') ? filters.sites : ['*'];
+  const freshness = filters.freshness || 'pm';
   const maxQueries = filters.maxQueries ?? 12;
   const out = new Map();
   let n = 0;
   for (const k of keywords.length ? keywords : DEFAULT_SOCIAL_PHRASES) {
     for (const site of sites) {
-      if (n >= maxQueries || (await usage(workspaceId, 'brave')) >= cap) return [...out.values()];
-      const qs = new URLSearchParams({ q: `site:${site} "${k}"`, freshness: 'pw', count: '20' });
-      const d = await getJson(`https://api.search.brave.com/res/v1/web/search?${qs}`, { headers: { 'x-subscription-token': env.BRAVE_API_KEY } }).catch((e) => (logger.warn({ err: e }, 'brave'), null));
+      if (n >= maxQueries) return [...out.values()];
+      const qs = new URLSearchParams({ q: site === '*' ? k : `site:${site} "${k}"`, freshness, count: '20' });
+      let d;
+      try {
+        d = await braveSearch(workspaceId, qs);
+      } catch (err) {
+        if (!out.size) throw err;
+        return [...out.values()];
+      }
       n += 1;
-      await usage(workspaceId, 'brave', 1);
       for (const r of d?.web?.results || []) {
         const a = authorFromUrl(r.url);
         out.set(r.url, {
           id: `web_${hash(r.url)}`,
-          platform: a.platform === 'web' ? 'linkedin' : a.platform,
+          platform: a.platform,
           title: strip(r.title).slice(0, 200),
           text: strip([r.description, ...(r.extra_snippets || [])].join('\n')).slice(0, 4000),
           author: a.name || 'unknown',
@@ -335,7 +373,8 @@ export async function fetchBrave({ workspaceId, keywords, filters = {} }) {
           url: r.url,
           postedAt: r.page_age || new Date().toISOString(),
           community: a.platform,
-          communityLabel: `${a.platform === 'x' ? 'X' : 'LinkedIn'} (web search)`,
+          communityLabel: a.platform === 'web' ? `Web · ${new URL(r.url).hostname.replace(/^www\./, '')}` : `${PLATFORM_NAMES[a.platform] || a.platform} (web search)`,
+          replyStyle: a.platform === 'web' ? 'tender' : undefined,
         });
       }
       await sleep(1100); // Brave free: 1 request/second
@@ -424,6 +463,8 @@ async function runCompaniesHouse({ workspaceId, target, job, createdBy, limit, n
   return { found: records.length, created: r.created };
 }
 
+const PLATFORM_NAMES = { x: 'X', linkedin: 'LinkedIn', threads: 'Threads', facebook: 'Facebook', instagram: 'Instagram', reddit: 'Reddit', bluesky: 'Bluesky' };
+
 const ADAPTERS = { freelancer: fetchFreelancer, hackernews: fetchHackerNews, tenders: fetchTenders, bluesky: fetchBluesky, brave: fetchBrave, x: fetchX };
 
 // Never pursue: gambling, adult, covert tracking, firmware/hardware, games.
@@ -490,7 +531,7 @@ export async function runIntentTarget({ workspaceId, target, job, createdBy }) {
       }
       checks += 1;
       found += 1;
-      let q = await qualify({ ...post, replyStyle: cfg.replyStyle });
+      let q = await qualify({ ...post, replyStyle: post.replyStyle || cfg.replyStyle });
       if (!q.ai) {
         if (!post.trusted) {
           note(`skipped (AI unavailable): ${post.title.slice(0, 80)}`);

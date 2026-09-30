@@ -30,6 +30,10 @@ describe('prefilter', () => {
     for (const t of ['Android Color Prediction Game', 'Silent Android Screenshot Service', 'BMS Firmware Developer With iPhone app', 'Casino website build'])
       expect(prefilter(p(t, { trusted: true, platform: 'freelancer' }))).toBe(false);
   });
+  it('treats RFPs as a hire signal', () => {
+    expect(prefilter(p('Request for Proposals (RFP) Website Redesign', { platform: 'web' }))).toBe(true);
+    expect(prefilter(p('Web Design RFP Template: How to Write a Web Development RFP', { platform: 'web' }))).toBe(true); // AI rejects templates
+  });
   it('keeps software tenders even without web words', () => {
     expect(prefilter(p('Case management software platform', { trusted: true, platform: 'tenders' }))).toBe(true);
   });

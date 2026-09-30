@@ -37,7 +37,7 @@ export const BUILD_ROLE_RE =
 
 // Someone who wants to PAY someone else to build it.
 export const HIRE_RE =
-  /(\[hiring\]|\[task\]|\[paid\]|\b(hiring|to hire|want to hire|looking to hire|looking for (a|an|someone|developers?|an? agency|freelancers?|a dev|a team)|need (a|an|someone|developers?|help building|help to build|it built|this built)|seeking (a|an)? ?(developer|agency|freelancer)|recommend (a|an)? ?(developer|agency|freelancer|dev shop)|who can (build|make|develop)|anyone (who can|able to) (build|make|develop)|quote (for|to) (build|develop|make)|how much (would|does|to|will) (it )?cost to (build|make|develop)|paying|will pay|dev shop|development (agency|company|partner)|outsourc(e|ing))\b)/i;
+  /(\[hiring\]|\[task\]|\[paid\]|\b(hiring|to hire|want to hire|looking to hire|looking for (a|an|someone|developers?|an? agency|freelancers?|a dev|a team)|need (a|an|someone|developers?|help building|help to build|it built|this built)|seeking (a|an)? ?(developer|agency|freelancer)|recommend (a|an)? ?(developer|agency|freelancer|dev shop)|who can (build|make|develop)|anyone (who can|able to) (build|make|develop)|quote (for|to) (build|develop|make)|how much (would|does|to|will) (it )?cost to (build|make|develop)|paying|will pay|dev shop|development (agency|company|partner)|outsourc(e|ing)|request for (proposals?|quotes?|bids?)|rfp|rfq|invitation to (bid|tender)|seek(s|ing) (proposals|bids|quotes)|accepting proposals)\b)/i;
 
 // Developers, agencies and job seekers — the people we compete with.
 export const SELLER_RE =
