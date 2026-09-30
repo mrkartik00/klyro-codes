@@ -20,13 +20,22 @@ here are made conservatively.
 - **G48 DO Spaces keys:** create a bucket-scoped key in DigitalOcean, add
   `DO_SPACES_ACCESS_KEY` / `DO_SPACES_SECRET_KEY` to `server/.env`, then
   `pm2 reload klyro-api`. Enables file uploads, PDFs, and backups.
-- **G45 n8n queue-mode stack:** Postgres 16 + n8n (native, since the LXC has no
-  Docker) as PM2 processes, `EXECUTIONS_MODE=queue`, `QUEUE_BULL_REDIS_DB=2`,
-  shared `N8N_ENCRYPTION_KEY`, nginx vhost `n8n.klyro.codes`
-  (`infra/nginx/n8n.conf` exists). Then set `N8N_WEBHOOK_URL` / `N8N_API_URL` /
-  `N8N_API_KEY` in `server/.env`. Import workflows from `n8n/workflows/*.json`.
-- **G36 gosom Maps scraper:** Go binary + Playwright Chromium as a PM2 app on
-  127.0.0.1, concurrency 2; n8n's `h1a-maps-scrape` workflow calls it.
+- **G45 n8n — DONE (2026-09-30).** n8n 1.123.82 on a bundled Node 22 at
+  `/opt/n8n` (the system Node 20 can't build `isolated-vm`), Postgres 16 (db/user
+  `n8n`, localhost only), queue mode on Redis db 2. PM2: `klyro-n8n` (main,
+  127.0.0.1:5678) + `klyro-n8n-worker-1/2`. Env + secrets: `/etc/klyro/n8n.env`
+  (root, 600). **Back up `N8N_ENCRYPTION_KEY`** from that file; saved
+  credentials are unreadable without it. Owner login: `kartik@klyro.codes`,
+  password in `/etc/klyro/n8n.owner`. nginx vhost `klyro-n8n.conf`: editor behind
+  basic auth (user `klyro`, password in `/etc/klyro/n8n.basicauth`), `/webhook/*`
+  open (webhooks verify HMAC). API → n8n via `N8N_WEBHOOK_URL`/`N8N_API_URL`/
+  `N8N_API_KEY` in `server/.env` (scoped key: workflow list/activate + executions).
+  Workflows: `bash infra/scripts/n8n-sync.sh` (deploy runs it when
+  `n8n/workflows/` changes). Still needed: DNS A `n8n` → 148.113.8.82 + AIC
+  domain on port 80 (for the editor UI only; automation runs on localhost).
+- **G36 gosom — DONE.** v1.18.1 binary at `/opt/gosom`, PM2 `klyro-gosom`,
+  web API on 127.0.0.1:8090, data in `/opt/gosom/data`. Chromium runtime libs
+  installed via apt.
 - **G47 monitoring:** Uptime Kuma (self-hosted, PM2) probing the `/health`
   endpoints; Sentry DSN in server + frontends (free tier). Both need accounts.
 - **G49 n8n export:** `.github/workflows/n8n-export.yml` needs repo secrets

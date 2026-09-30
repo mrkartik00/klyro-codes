@@ -1,11 +1,21 @@
 {
   "id": "KlyroH11Health01",
   "name": "H11 — Health check → Telegram",
-  "meta": {
-    "description": "Every 10 minutes, pings the Klyro API /health and alerts Telegram if it is not 200. Set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID env vars and KLYRO_API_BASE."
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none"
   },
   "nodes": [
     {
+      "id": "s",
+      "name": "Every 10 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "rule": {
           "interval": [
@@ -15,81 +25,40 @@
             }
           ]
         }
-      },
-      "id": "cron",
-      "name": "Every 10 min",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
-      "position": [
-        0,
-        0
-      ]
+      }
     },
     {
-      "parameters": {
-        "url": "={{ $env.KLYRO_API_BASE }}/health",
-        "options": {
-          "response": {
-            "response": {
-              "fullResponse": true,
-              "neverError": true
-            }
-          }
-        }
-      },
-      "id": "ping",
-      "name": "Ping /health",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "id": "c",
+      "name": "Check services",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         220,
         0
-      ]
+      ],
+      "parameters": {
+        "jsCode": "// Ping every Klyro automation dependency; emit one item per failure.\nconst checks = [\n  ['Klyro API', `${$env.KLYRO_API_BASE}/health`],\n  ['Maps scraper', `${$env.SCRAPER_BASE}/api/v1/jobs`],\n];\nconst failures = [];\nfor (const [name, url] of checks) {\n  try {\n    const r = await this.helpers.httpRequest({ url, timeout: 10000, returnFullResponse: true, ignoreHttpStatusErrors: true });\n    if (r.statusCode !== 200) failures.push(`${name}: HTTP ${r.statusCode}`);\n  } catch (e) {\n    failures.push(`${name}: ${e.message}`.slice(0, 200));\n  }\n}\nreturn failures.length ? [{ json: { text: `⚠️ Klyro health check failed\\n${failures.join('\\n')}` } }] : [];"
+      },
+      "alwaysOutputData": false
     },
     {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json.statusCode }}",
-              "rightValue": 200,
-              "operator": {
-                "type": "number",
-                "operation": "notEquals"
-              }
-            }
-          ]
-        }
-      },
-      "id": "ifDown",
-      "name": "Unhealthy?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        440,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
-        "sendBody": true,
-        "contentType": "json",
-        "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, text: '⚠️ Klyro API health check failed (status ' + $json.statusCode + ')' }) }}",
-        "options": {}
-      },
-      "id": "alert",
+      "id": "t",
       "name": "Telegram alert",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        660,
+        440,
         0
-      ]
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, text: $json.text }) }}",
+        "options": {}
+      }
     }
   ],
   "connections": {
@@ -97,25 +66,14 @@
       "main": [
         [
           {
-            "node": "Ping /health",
+            "node": "Check services",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ping /health": {
-      "main": [
-        [
-          {
-            "node": "Unhealthy?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Unhealthy?": {
+    "Check services": {
       "main": [
         [
           {
@@ -123,12 +81,11 @@
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     }
   },
-  "settings": {
-    "executionOrder": "v1"
+  "meta": {
+    "notes": "Needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in /etc/klyro/n8n.env. Runs silently when healthy."
   }
 }

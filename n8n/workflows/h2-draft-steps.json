@@ -1,0 +1,143 @@
+{
+  "id": "KlyroH2Draft0001",
+  "name": "H2 — Draft due steps → approval queue",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none"
+  },
+  "nodes": [
+    {
+      "id": "s",
+      "name": "Every 15 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "q",
+      "name": "Ask for due steps",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: { method: 'GET', path: `/internal/steps/due?workspaceId=${$env.KLYRO_WORKSPACE_ID}&limit=25` } }];"
+      }
+    },
+    {
+      "id": "get-due-steps",
+      "name": "Get due steps",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "KlyroApiSigner01",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "m",
+      "name": "One per step",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Drafting happens in the API (template + Gemini); n8n only schedules it.\nconst rows = $input.first().json?.data || [];\nreturn rows.filter((r) => r.channel === 'email' || !r.channel).map((r) => ({ json: {\n  method: 'POST', path: '/internal/approvals',\n  idempotencyKey: `draft-${r.enrollmentId}-${r.stepOrder}`,\n  body: { workspaceId: $env.KLYRO_WORKSPACE_ID, enrollmentId: String(r.enrollmentId), stepOrder: r.stepOrder },\n} }));"
+      }
+    },
+    {
+      "id": "create-drafts",
+      "name": "Create drafts",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "KlyroApiSigner01",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Every 15 min": {
+      "main": [
+        [
+          {
+            "node": "Ask for due steps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask for due steps": {
+      "main": [
+        [
+          {
+            "node": "Get due steps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get due steps": {
+      "main": [
+        [
+          {
+            "node": "One per step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One per step": {
+      "main": [
+        [
+          {
+            "node": "Create drafts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
