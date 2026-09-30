@@ -21,7 +21,7 @@ const PRESETS = [
   { source: 'freelancer', group: 'Freelancer.com', name: 'Freelancer — big projects ($1.5k+)', keywords: ['website', 'app', 'platform', 'saas', 'marketplace'], filters: { minBudgetUsd: 1500, maxBids: 100, maxAgeDays: 3, minIntent: 0.5, maxChecks: 15 } },
   { source: 'hackernews', group: 'Hacker News', name: 'HN — seeking freelancer & founders', keywords: [], filters: { maxAgeDays: 7, minIntent: 0.6 } },
   { source: 'tenders', group: 'Public tenders', name: 'Tenders — UK websites & software', keywords: [], maxResults: 40, filters: { maxAgeDays: 3, minIntent: 0.5 } },
-  { source: 'bluesky', group: 'Social networks', name: 'Bluesky — people hiring a developer', keywords: SOCIAL, filters: { maxAgeDays: 2, minIntent: 0.6 } },
+  { source: 'bluesky', group: 'Social networks', name: 'Bluesky — people hiring a developer', keywords: [...SOCIAL, 'need a developer', 'hiring a freelance developer', 'build my app', 'recommend a web designer'], filters: { maxAgeDays: 7, minIntent: 0.6 } },
   // Brave: public RFPs (US councils, nonprofits, schools…) are the best yield; LinkedIn/X posts are thin in its index.
   { source: 'brave', group: 'Public tenders', name: 'RFPs — website redesign & development (web search)', keywords: ['"request for proposals" website redesign', '"request for proposals" "website development"', 'RFP "website redesign"', '"request for proposal" "mobile app development"', '"seeking proposals" website'], filters: { sites: ['*'], freshness: 'pm', maxQueries: 5, minIntent: 0.6, maxAgeDays: 45 } },
   // Brave's index barely covers LinkedIn/X/Threads posts (0 results in tests) — paused; use Clip & search instead.

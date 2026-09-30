@@ -250,15 +250,17 @@ export const DEFAULT_SOCIAL_PHRASES = ['looking for a developer', 'need a websit
 
 export async function fetchBluesky({ keywords, sinceDays }) {
   const { jwt, pds } = await bskySession();
-  const since = new Date(Date.now() - sinceDays * 864e5).toISOString();
+  // Bluesky's `since` parameter returns nothing, so filter by date here.
+  const since = Date.now() - sinceDays * 864e5;
   const out = new Map();
   for (const k of keywords.length ? keywords : DEFAULT_SOCIAL_PHRASES) {
-    const qs = new URLSearchParams({ q: `"${k}"`, sort: 'latest', limit: '100', since });
+    const qs = new URLSearchParams({ q: `"${k}"`, sort: 'latest', limit: '100' });
     const d = await getJson(`${pds}/xrpc/app.bsky.feed.searchPosts?${qs}`, { headers: { authorization: `Bearer ${jwt}` } }).catch((e) => (logger.warn({ err: e }, 'bluesky search'), null));
     for (const p of d?.posts || []) {
       const rkey = p.uri.split('/').pop();
       const h = p.author?.handle;
       const text = String(p.record?.text || '');
+      if (new Date(p.record?.createdAt || p.indexedAt).getTime() < since) continue;
       out.set(p.uri, {
         id: `bsky_${hash(p.uri)}`,
         platform: 'bluesky',
