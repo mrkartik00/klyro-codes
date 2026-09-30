@@ -15,15 +15,24 @@ export async function sendTelegram(text, { buttons, chatId = cfg('TELEGRAM_CHAT_
   const reply_markup = buttons
     ? { inline_keyboard: [buttons.map((b) => ({ text: b.text, callback_data: b.data }))] }
     : undefined;
-  const res = await fetch(`https://api.telegram.org/bot${cfg('TELEGRAM_BOT_TOKEN')}/sendMessage`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', reply_markup, link_preview_options: { is_disabled: true } }),
-  });
-  const body = await res.json().catch(() => ({}));
+  const send = (payload) =>
+    fetch(`https://api.telegram.org/bot${cfg('TELEGRAM_BOT_TOKEN')}/sendMessage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, reply_markup, link_preview_options: { is_disabled: true }, ...payload }),
+    });
+  let res = await send({ text, parse_mode: 'HTML' });
+  let body = await res.json().catch(() => ({}));
+  // Text with a stray "<" or "&" (e.g. error messages) breaks HTML mode:
+  // resend as plain text so the alert is never lost.
+  if (res.status === 400 && /can't parse entities/i.test(body.description || '')) {
+    const plain = String(text).replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    res = await send({ text: plain });
+    body = await res.json().catch(() => ({}));
+  }
   if (!res.ok) {
     logger.error({ status: res.status }, 'Telegram send failed');
-    reportIssue('telegram', res.status === 400 && /chat not found/i.test(body.description || '') ? 'Chat not found — check the Chat ID (message the bot first).' : reasonFor(res.status, body.description));
+    reportIssue('telegram', /chat not found/i.test(body.description || '') ? 'Chat not found — check the Chat ID (message the bot first).' : `${reasonFor(res.status, body.description)}${body.description ? ` — Telegram says: ${body.description}` : ''}`);
   } else reportOk('telegram', `Last message to chat ${chatId}`);
   return body;
 }

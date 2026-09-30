@@ -17,5 +17,6 @@ export async function alertApprovalNeeded({ count }) {
 }
 
 export async function alertError({ where, message }) {
-  return sendTelegram(`⚠️ <b>Error</b> in ${where}\n${message}`);
+  const esc = (x) => String(x ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return sendTelegram(`⚠️ <b>Error</b> in ${esc(where)}\n${esc(message).slice(0, 3500)}`);
 }
