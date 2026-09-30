@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api, { unwrap } from '../lib/api.js';
 import { useToast } from '../hooks/useToast.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
-import { Card, CardContent, Button, Input, Label, Textarea, Badge, Spinner } from '../components/ui/index.jsx';
+import { Card, CardContent, Button, Input, Label, Textarea, Spinner } from '../components/ui/index.jsx';
 
 /** Settings come back as [{ key, value, encrypted }]. */
 export function readSetting(rows, key, fallback = '') {
@@ -21,9 +21,15 @@ export default function Settings() {
     queryKey: ['settings'],
     queryFn: () => unwrap(api.get('/admin/settings')),
   });
-  const workflows = useQuery({
-    queryKey: ['automation', 'workflows'],
-    queryFn: () => unwrap(api.get('/admin/automation/workflows')),
+  const integrations = useQuery({
+    queryKey: ['integrations'],
+    queryFn: () => unwrap(api.get('/admin/settings/integrations')),
+    refetchInterval: 30000,
+  });
+  const test = useMutation({
+    mutationFn: (key) => unwrap(api.post(`/admin/settings/integrations/${key}/test`)),
+    onSuccess: (d) => toast.success(d?.message || 'Test passed'),
+    onError: (e) => toast.error(e.message || 'Test failed'),
   });
 
   const save = useMutation({
@@ -45,7 +51,7 @@ export default function Settings() {
   }, [data]);
   const set = (k) => (e) => setProfile((p) => ({ ...p, [k]: e.target.value }));
 
-  const wfRows = Array.isArray(workflows.data) ? workflows.data : workflows.data?.items || [];
+  const intRows = Array.isArray(integrations.data) ? integrations.data : [];
 
   if (isLoading) {
     return (
@@ -117,29 +123,51 @@ export default function Settings() {
       <Card>
         <CardContent className="space-y-4 p-5">
           <div>
-            <h2 className="text-base font-semibold">Automation</h2>
+            <h2 className="text-base font-semibold">Integrations</h2>
             <p className="text-sm text-muted-foreground">
-              Workflows running in n8n. Emails send only on weekdays, 9am–5pm in each lead&apos;s own timezone, and only after you approve the draft.
+              Live status. Emails send only on weekdays, 9am–5pm in each lead&apos;s timezone, and only after you approve the draft.
             </p>
           </div>
-          {workflows.isLoading ? (
+          {integrations.isLoading ? (
             <Spinner />
-          ) : wfRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">n8n is not reachable right now.</p>
+          ) : intRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Could not load integration status.</p>
           ) : (
             <ul className="divide-y divide-border rounded-lg border border-border">
-              {wfRows
-                .filter((w) => !/^Klyro API|^ZZ/.test(w.name))
-                .map((w) => (
-                  <li key={w.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                    <span className="min-w-0 truncate">{w.name}</span>
-                    <Badge variant={w.active ? 'success' : 'default'}>{w.active ? 'on' : 'off'}</Badge>
-                  </li>
-                ))}
+              {intRows.map((i) => (
+                <li key={i.key} className="flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-2 text-sm font-medium">
+                      <span
+                        className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${i.ok ? 'bg-green-500' : 'bg-amber-500'}`}
+                        aria-hidden="true"
+                      />
+                      {i.name}
+                      <span className="sr-only">{i.ok ? '(working)' : '(needs attention)'}</span>
+                    </p>
+                    <p className="mt-0.5 break-words pl-[18px] text-xs text-muted-foreground">{i.detail}</p>
+                  </div>
+                  {i.test && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="sm:shrink-0"
+                      onClick={() => test.mutate(i.key)}
+                      disabled={test.isPending && test.variables === i.key}
+                    >
+                      {test.isPending && test.variables === i.key ? 'Testing…' : 'Send test'}
+                    </Button>
+                  )}
+                </li>
+              ))}
             </ul>
           )}
           <p className="text-xs text-muted-foreground">
-            API keys (Gemini, Brevo, Telegram, Google) are stored securely on the server, not in the browser.
+            Keys are stored on the server only. The n8n editor is at{' '}
+            <a href="https://n8n.klyro.codes" target="_blank" rel="noopener noreferrer" className="underline">
+              n8n.klyro.codes
+            </a>
+            .
           </p>
         </CardContent>
       </Card>
