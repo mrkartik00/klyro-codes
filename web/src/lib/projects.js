@@ -4,7 +4,9 @@ export const projects = [
   {
     name: 'ESTATE100',
     preview: 'estate100',
-    embed: true, // framing enabled via CSP frame-ancestors
+    // Site sends X-Frame-Options: SAMEORIGIN → show captured pages instead.
+    // Set to true once it allows https://klyro.codes in frame-ancestors.
+    embed: false,
     url: 'https://estate100.com',
     domain: 'estate100.com',
     category: 'Real estate platform',
@@ -50,7 +52,7 @@ export const projects = [
   {
     name: 'Shyam Yatra',
     preview: 'shyam-yatra',
-    embed: true,
+    embed: false, // X-Frame-Options: SAMEORIGIN (see estate100)
     url: 'https://shyamyatra.in',
     domain: 'shyamyatra.in',
     category: 'Pilgrimage & booking',
