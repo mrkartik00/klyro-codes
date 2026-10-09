@@ -59,12 +59,20 @@ export function fillTemplate(text, vars) {
  * email can never point a prospect to an empty page.
  */
 export function stripPitchReferences(text) {
-  return String(text ?? '')
+  const DANGLE = /\b(wanted to share|put together|share (a|an) quick|here('?s| is) a (quick )?(concept|preview|page|idea)|showing what|updated (site|layout)|a quick concept|a short page|a concept we)\b/i;
+  const lines = String(text ?? '')
     .split(/\n/)
+    // Drop whole lines that link a pitch page or clearly advertise a preview page.
     .filter((line) => !/https?:\/\/\S*\/pitch\//i.test(line) && !/\b(preview|proposal|mock-?up|short page|sample (site|page))\b/i.test(line))
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+    // Within remaining lines, drop any dangling sentence promising a page/concept.
+    .map((line) =>
+      line
+        .split(/(?<=[.!?])\s+/)
+        .filter((sent) => !DANGLE.test(sent))
+        .join(' ')
+        .trim(),
+    );
+  return lines.join('\n').replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /** Produce a validated draft. Falls back to a template-based draft if AI fails. */

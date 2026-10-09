@@ -18,6 +18,15 @@ describe('stripPitchReferences', () => {
     const body = 'Hi,\nYour website has no SSL.\nKartik';
     expect(stripPitchReferences(body)).toBe(body);
   });
+
+  it('removes a dangling preview lead-in while keeping greeting and CTA', () => {
+    const body = 'Hi there,\n\nI came across Plumbsy in the US. Since you already have a website, I wanted to share a quick concept we put together.\n\nWorth a 10-minute chat this week?\n\nKartik, Klyro';
+    const out = stripPitchReferences(body);
+    expect(out).not.toMatch(/wanted to share|concept we put together/i);
+    expect(out).toContain('Hi there,');
+    expect(out).toContain('Worth a 10-minute chat this week?');
+    expect(out).toContain('I came across Plumbsy in the US.');
+  });
 });
 
 describe('checkDraft bad_pitch_link guardrail', () => {
