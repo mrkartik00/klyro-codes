@@ -110,3 +110,50 @@ export async function enrollLeads({ workspaceId, campaignId, leadIds, timezoneDe
     return outcomes;
   });
 }
+
+/**
+ * Auto-enroll: fill the active email campaign with the best eligible leads that
+ * are not yet enrolled. Picks highest-scoring enriched/new leads that have a
+ * usable contact email, then defers all eligibility/PECR/suppression/dedupe
+ * checks to enrollLeads (which skips anything ineligible). Capped per run so a
+ * backlog drains gradually under the mailbox daily cap.
+ *
+ * Returns { campaignId, considered, enrolled, reasons } or { skipped } when
+ * there is no active campaign / nothing to do.
+ */
+export async function autoEnrollWorkspace({ workspaceId, limit = 50, createdBy }) {
+  const { Campaign } = await import('../models/Campaign.js');
+  const campaign = await Campaign.findOne({ workspaceId, status: 'active', channel: 'email', deletedAt: null })
+    .sort({ createdAt: 1 })
+    .lean();
+  if (!campaign) return { skipped: true, reason: 'no_active_email_campaign' };
+
+  const enrolledLeadIds = await Enrollment.distinct('leadId', { workspaceId, campaignId: campaign._id });
+
+  // Highest-scoring leads with a usable email that aren't already enrolled.
+  const candidates = await Lead.aggregate([
+    {
+      $match: {
+        workspaceId,
+        deletedAt: null,
+        stage: { $in: ['new', 'enriched'] },
+        primaryContactId: { $ne: null },
+        _id: { $nin: enrolledLeadIds },
+      },
+    },
+    { $lookup: { from: 'contacts', localField: 'primaryContactId', foreignField: '_id', as: 'c' } },
+    { $unwind: '$c' },
+    { $match: { 'c.email': { $ne: null }, 'c.emailStatus': { $ne: 'invalid' } } },
+    { $sort: { score: -1, createdAt: 1 } },
+    { $limit: limit },
+    { $project: { _id: 1 } },
+  ]);
+
+  const leadIds = candidates.map((c) => c._id);
+  if (!leadIds.length) return { campaignId: campaign._id, considered: 0, enrolled: 0, reasons: {} };
+
+  const outcomes = await enrollLeads({ workspaceId, campaignId: campaign._id, leadIds, createdBy: createdBy ?? campaign.createdBy });
+  const reasons = {};
+  for (const o of outcomes) if (!o.enrolled) reasons[o.reason] = (reasons[o.reason] || 0) + 1;
+  return { campaignId: campaign._id, considered: leadIds.length, enrolled: outcomes.filter((o) => o.enrolled).length, reasons };
+}

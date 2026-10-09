@@ -10,6 +10,7 @@ import { sendTelegram } from '../integrations/telegram/index.js';
 import { Workspace } from '../models/Workspace.js';
 import { runDueSchedules } from '../services/schedule.service.js';
 import { sendDigest } from '../services/digest.service.js';
+import { autoEnrollWorkspace } from '../services/enrollment.service.js';
 
 const connection = () => getRedis();
 const registry = [];
@@ -24,7 +25,8 @@ export function startQueues() {
   const reminders = new Queue('invoiceReminders', opts);
   const scheduler = new Queue('scrapeScheduler', opts);
   const digest = new Queue('morningDigest', opts);
-  registry.push(health, daily, rollup, reminders, scheduler, digest);
+  const autoEnroll = new Queue('autoEnroll', opts);
+  registry.push(health, daily, rollup, reminders, scheduler, digest, autoEnroll);
 
   const mbWorker = new Worker(
     'mailboxHealth',
@@ -70,6 +72,20 @@ export function startQueues() {
     opts,
   );
 
+  // Auto-enroll the best eligible leads into each workspace's active email
+  // campaign so the outreach pipeline runs hands-off. Enrollment sends nothing
+  // on its own — drafts still require approval before H3 sends them.
+  const autoEnrollWorker = new Worker(
+    'autoEnroll',
+    async () => {
+      for (const ws of await Workspace.find().lean()) {
+        const r = await autoEnrollWorkspace({ workspaceId: ws._id, limit: 50 });
+        if (r?.enrolled) logger.info({ workspaceId: String(ws._id), ...r }, 'auto-enroll run');
+      }
+    },
+    opts,
+  );
+
   // Surface worker failures to Telegram instead of failing silently.
   for (const [name, w] of [
     ['mailboxHealth', mbWorker],
@@ -78,6 +94,7 @@ export function startQueues() {
     ['invoiceReminders', remindersWorker],
     ['scrapeScheduler', schedulerWorker],
     ['morningDigest', digestWorker],
+    ['autoEnroll', autoEnrollWorker],
   ]) {
     w.on('failed', (_job, err) => {
       logger.error({ err, worker: name }, 'BullMQ worker failed');
@@ -94,8 +111,10 @@ export function startQueues() {
   scheduler.add('minute', {}, { repeat: { pattern: '* * * * *' }, removeOnComplete: true, removeOnFail: 50 });
   // Morning digest of the best overnight leads (Telegram), 07:30 India time.
   digest.add('daily', {}, { repeat: { pattern: env.DIGEST_CRON || '30 7 * * *', tz: env.DIGEST_TZ || 'Asia/Kolkata' }, removeOnComplete: true });
+  // Keep the active email campaign topped up with eligible leads, every 30 min.
+  autoEnroll.add('tick', {}, { repeat: { pattern: '*/30 * * * *' }, removeOnComplete: true, removeOnFail: 50 });
 
-  logger.info('BullMQ queues started (mailboxHealth, dailyReset, metricsRollup, invoiceReminders, scrapeScheduler, morningDigest)');
+  logger.info('BullMQ queues started (mailboxHealth, dailyReset, metricsRollup, invoiceReminders, scrapeScheduler, morningDigest, autoEnroll)');
 }
 
 export async function stopQueues() {
