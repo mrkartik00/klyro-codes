@@ -594,9 +594,23 @@ async function runApify({ workspaceId, target, job, createdBy, limit, note }) {
     ...(target.country ? { countryCode: String(target.country).toLowerCase() } : {}),
   };
   const url = `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=290&memory=1024`;
-  const items = await getJson(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }, { retries: 1 }).catch(
-    (e) => (note(`Apify error: ${e.message}`), []),
-  );
+  // Apify sync runs can take minutes — use a long timeout, not the shared 25s getJson.
+  let items = [];
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'user-agent': UA, accept: 'application/json' },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(295000),
+    });
+    if (!res.ok) {
+      note(`Apify error: ${reasonFor(res.status, (await res.text().catch(() => '')).slice(0, 200))}`);
+    } else {
+      items = await res.json().catch(() => []);
+    }
+  } catch (e) {
+    note(`Apify error: ${e.name === 'TimeoutError' ? 'run exceeded 295s' : e.message}`);
+  }
   const records = (Array.isArray(items) ? items : []).slice(0, limit).map((p) => ({
     name: p.title || p.name,
     placeId: p.placeId ? `apify:${p.placeId}` : p.url ? `apify:${p.url}` : undefined,
