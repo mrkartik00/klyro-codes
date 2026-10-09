@@ -29,6 +29,8 @@ export const PLATFORM_LABEL = {
   instagram: 'Instagram',
   facebook: 'Facebook',
   companieshouse: 'Companies House',
+  googleplaces: 'Google Places',
+  apify: 'Apify (Maps)',
   web: 'Web (clipped)',
   inbound: 'Website form',
   csv: 'CSV',

@@ -43,6 +43,13 @@ const schema = z.object({
   X_BEARER_TOKEN: z.string().optional(), // official X API (pay-per-use)
   X_MONTHLY_READ_CAP: z.coerce.number().int().default(3000), // hard cap on paid X post reads/month
   SAM_API_KEY: z.string().optional(), // US federal tenders (sam.gov)
+  // Lead discovery + enrichment providers (all free-tier; a source without its key is skipped).
+  GOOGLE_PLACES_API_KEY: z.string().optional(), // Places API (New) text search — businesses
+  APIFY_TOKEN: z.string().optional(), // Apify actors (e.g. Google Maps crawler)
+  APIFY_PLACES_ACTOR: z.string().optional(), // default compass~crawler-google-places
+  FIRECRAWL_API_KEY: z.string().optional(), // website fetch/read for enrichment
+  SCRAPINGBEE_API_KEY: z.string().optional(), // website fetch via proxies (enrichment fallback)
+  SCRAPLING_URL: z.string().optional(), // optional self-hosted Scrapling HTTP sidecar
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   DIGEST_CRON: z.string().optional(), // morning digest time (default 07:30)
   DIGEST_TZ: z.string().optional(),

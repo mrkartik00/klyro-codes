@@ -42,6 +42,8 @@ export const INTENT_SOURCES = {
   brave: { label: 'LinkedIn & X (via web search)', trusted: false, replyStyle: 'dm', needs: ['BRAVE_API_KEY'], hint: 'Public LinkedIn / X posts found by Brave Search (1–3 days delay).' },
   x: { label: 'X (official API)', trusted: false, replyStyle: 'reply', needs: ['X_BEARER_TOKEN'], hint: 'Recent X posts. Paid per post read, hard monthly cap.' },
   companieshouse: { label: 'New UK companies', trusted: true, business: true, needs: ['COMPANIES_HOUSE_API_KEY'], hint: 'Companies incorporated in the last days — they all need a website.' },
+  googleplaces: { label: 'Google Places', trusted: true, business: true, needs: ['GOOGLE_PLACES_API_KEY'], hint: 'Businesses by text search (category × city). Returns website + phone.' },
+  apify: { label: 'Apify (Google Maps)', trusted: true, business: true, needs: ['APIFY_TOKEN'], hint: 'Runs a Google Maps Actor across the web. Free $5/month credit.' },
 };
 
 export const isIntentSource = (s) => Boolean(INTENT_SOURCES[s]);
@@ -520,6 +522,105 @@ async function runCompaniesHouse({ workspaceId, target, job, createdBy, limit, n
 
 const PLATFORM_NAMES = { x: 'X', linkedin: 'LinkedIn', threads: 'Threads', facebook: 'Facebook', instagram: 'Instagram', reddit: 'Reddit', bluesky: 'Bluesky' };
 
+/* ---- Google Places + Apify: business discovery (reuse ingestBatch) ---- */
+
+const COUNTRY_FULL = { US: 'USA', GB: 'UK', UK: 'UK' };
+
+/** category/keyword × city queries, e.g. "dentist in Austin, USA". Capped. */
+export function businessQueries(target, max = 20) {
+  const terms = [...new Set([...(target.categories ?? []), ...(target.keywords ?? [])].map((s) => String(s).trim()).filter(Boolean))];
+  const cities = [...new Set((target.cities ?? []).map((s) => String(s).trim()).filter(Boolean))];
+  const country = COUNTRY_FULL[target.country?.toUpperCase()] ?? target.country ?? '';
+  const out = [];
+  for (const term of terms.length ? terms : ['business']) {
+    if (!cities.length) out.push(country ? `${term} in ${country}` : term);
+    for (const city of cities) out.push(`${term} in ${[city, country].filter(Boolean).join(', ')}`);
+  }
+  return out.slice(0, max);
+}
+
+/** Google Places (New) Text Search → businesses with website + phone. */
+async function runGooglePlaces({ workspaceId, target, job, createdBy, limit, note }) {
+  const key = cfg('GOOGLE_PLACES_API_KEY');
+  const queries = businessQueries(target);
+  const seen = new Set();
+  const records = [];
+  for (const q of queries) {
+    if (records.length >= limit) break;
+    const data = await getJson('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Goog-Api-Key': key,
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.websiteUri,places.nationalPhoneNumber,places.internationalPhoneNumber,places.rating,places.userRatingCount,places.primaryTypeDisplayName,places.location',
+      },
+      body: JSON.stringify({ textQuery: q, maxResultCount: 20, languageCode: 'en' }),
+    }).catch((e) => (note(`Places error on "${q}": ${e.message}`), null));
+    for (const p of data?.places || []) {
+      if (seen.has(p.id) || records.length >= limit) continue;
+      seen.add(p.id);
+      records.push({
+        name: p.displayName?.text,
+        placeId: `gp:${p.id}`,
+        website: p.websiteUri,
+        phone: p.internationalPhoneNumber || p.nationalPhoneNumber,
+        address: p.formattedAddress,
+        country: target.country,
+        category: p.primaryTypeDisplayName?.text || target.categories?.[0],
+        rating: p.rating,
+        reviewCount: p.userRatingCount,
+        lat: p.location?.latitude,
+        lng: p.location?.longitude,
+        tags: ['google-places'],
+      });
+    }
+    await sleep(400);
+  }
+  note(`Google Places: ${records.length} businesses across ${queries.length} queries`);
+  if (!records.length) return { found: 0, created: 0, leads: [] };
+  const r = await ingestBatch({ workspaceId, source: 'googleplaces', reference: String(job?._id ?? target._id), records, createdBy });
+  return { found: records.length, created: r.created, leads: r.leads };
+}
+
+/** Apify Actor (default: Google Maps crawler) run-sync-get-dataset-items. */
+async function runApify({ workspaceId, target, job, createdBy, limit, note }) {
+  const token = cfg('APIFY_TOKEN');
+  const actor = (cfg('APIFY_PLACES_ACTOR') || 'compass~crawler-google-places').replace('/', '~');
+  const queries = businessQueries(target, 10);
+  const input = {
+    searchStringsArray: queries,
+    maxCrawledPlacesPerSearch: Math.max(1, Math.ceil(limit / Math.max(1, queries.length))),
+    language: 'en',
+    ...(target.country ? { countryCode: String(target.country).toLowerCase() } : {}),
+  };
+  const url = `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=290&memory=1024`;
+  const items = await getJson(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }, { retries: 1 }).catch(
+    (e) => (note(`Apify error: ${e.message}`), []),
+  );
+  const records = (Array.isArray(items) ? items : []).slice(0, limit).map((p) => ({
+    name: p.title || p.name,
+    placeId: p.placeId ? `apify:${p.placeId}` : p.url ? `apify:${p.url}` : undefined,
+    website: p.website,
+    phone: p.phone || p.phoneUnformatted,
+    address: p.address || [p.street, p.city, p.postalCode].filter(Boolean).join(', '),
+    city: p.city,
+    country: p.countryCode?.toUpperCase() || target.country,
+    category: p.categoryName || p.category || target.categories?.[0],
+    rating: p.totalScore,
+    reviewCount: p.reviewsCount,
+    lat: p.location?.lat,
+    lng: p.location?.lng,
+    email: p.email || (Array.isArray(p.emails) ? p.emails[0] : undefined),
+    tags: ['apify'],
+  })).filter((r) => r.name);
+  note(`Apify (${actor}): ${records.length} businesses`);
+  if (!records.length) return { found: 0, created: 0, leads: [] };
+  const r = await ingestBatch({ workspaceId, source: 'apify', reference: String(job?._id ?? target._id), records, createdBy });
+  return { found: records.length, created: r.created, leads: r.leads };
+}
+
+const BUSINESS_HANDLERS = { companieshouse: runCompaniesHouse, googleplaces: runGooglePlaces, apify: runApify };
+
 const ADAPTERS = { freelancer: fetchFreelancer, hackernews: fetchHackerNews, tenders: fetchTenders, bluesky: fetchBluesky, brave: fetchBrave, x: fetchX };
 
 // Never pursue: gambling, adult, covert tracking, firmware/hardware, games.
@@ -561,8 +662,24 @@ export async function runIntentTarget({ workspaceId, target, job, createdBy }) {
     if (missing.length) throw new Error(`${cfg.label} is not set up — add ${missing.join(', ')} to the server .env`);
 
     if (cfg.business) {
-      const r = await runCompaniesHouse({ workspaceId, target, job, createdBy, limit, note });
-      reportOk('companieshouse', `Last run: ${r.found} companies, ${r.created} new leads`);
+      const handler = BUSINESS_HANDLERS[target.source];
+      if (!handler) throw new Error(`No handler for business source ${target.source}`);
+      const r = await handler({ workspaceId, target, job, createdBy, limit, note });
+      // Opportunistic email discovery via Firecrawl/ScrapingBee for new leads
+      // that have a website but no email yet (bounded to protect free quotas).
+      const { webfetchReady } = await import('../integrations/webfetch/index.js');
+      if (webfetchReady() && Array.isArray(r.leads)) {
+        const { discoverLeadEmail } = await import('./enrichment.service.js');
+        const withSite = r.leads.filter((l) => l.created && l.domain).slice(0, target.filters?.maxEmailLookups ?? 15);
+        let emails = 0;
+        for (const l of withSite) {
+          const d = await discoverLeadEmail({ workspaceId, leadId: l.leadId, actorId: createdBy }).catch(() => null);
+          if (d?.email) emails += 1;
+          await sleep(500);
+        }
+        if (withSite.length) note(`Email discovery: ${emails}/${withSite.length} sites yielded an email`);
+      }
+      reportOk(target.source, `Last run: ${r.found} businesses, ${r.created} new leads`);
       await progress({ status: 'enriched', found: r.found, ingested: r.created, finishedAt: new Date() });
       return r;
     }
