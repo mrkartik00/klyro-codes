@@ -77,6 +77,22 @@ export async function usage(workspaceId, name, add = 0) {
 
 const FREELANCER_QUERIES = ['website', 'web app', 'mobile app', 'android app', 'ios app', 'shopify', 'wordpress', 'ecommerce', 'react', 'flutter'];
 
+// Posters sometimes leave a way to reach them off-platform. Keep only those
+// Freelancer projects (so a lead is actually contactable without bidding).
+const CONTACT_EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,24}/i;
+/** Returns { email, phone } found in free text, or null if neither is present. */
+export function extractContact(text = '') {
+  const email = (String(text).match(CONTACT_EMAIL_RE) || [])[0]?.toLowerCase() || null;
+  let phone = null;
+  // 7–15 digits allowing spaces, dashes, dots, parens and a leading +. The
+  // digit-count guard avoids matching budgets, dates and project IDs.
+  for (const m of String(text).matchAll(/\+?\d[\d\s().-]{6,}\d/g)) {
+    const digits = m[0].replace(/\D/g, '');
+    if (digits.length >= 7 && digits.length <= 15) { phone = m[0].trim(); break; }
+  }
+  return email || phone ? { email, phone } : null;
+}
+
 export async function fetchFreelancer({ keywords, sinceDays, filters = {} }) {
   const since = Date.now() / 1000 - sinceDays * 86400;
   const out = new Map();
@@ -93,11 +109,17 @@ export async function fetchFreelancer({ keywords, sinceDays, filters = {} }) {
       const bids = p.bid_stats?.bid_count ?? 0;
       if (usd < (filters.minBudgetUsd ?? 150)) continue;
       if (bids > (filters.maxBids ?? 80)) continue;
+      const text = strip(p.description).slice(0, 4000);
+      // Keep only posts where the client left an email or phone in the brief.
+      const contact = extractContact(`${decodeEntities(p.title)} ${text}`);
+      if (!contact) continue;
       out.set(p.id, {
         id: `fl_${p.id}`,
         platform: 'freelancer',
         title: decodeEntities(p.title),
-        text: strip(p.description).slice(0, 4000),
+        text,
+        email: contact.email ?? undefined,
+        phone: contact.phone ?? undefined,
         author: 'Freelancer.com client',
         handle: 'Freelancer.com client',
         authorUrl: null,

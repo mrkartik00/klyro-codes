@@ -356,7 +356,10 @@ export async function saveRedditLead({ workspaceId, post, q, targetId }) {
       ],
       { session, ordered: true },
     );
-    const email = (post.text.match(EMAIL_RE) || [])[0]?.toLowerCase();
+    // Prefer contact details the adapter already extracted (e.g. Freelancer
+    // keeps only posts with an email/phone); fall back to scanning the text.
+    const email = post.email || (post.text.match(EMAIL_RE) || [])[0]?.toLowerCase();
+    const phone = post.phone || undefined;
     const contact = email
       ? await Contact.findOneAndUpdate(
           { workspaceId, email },
@@ -370,11 +373,12 @@ export async function saveRedditLead({ workspaceId, post, q, targetId }) {
               handles: { [platform]: handle },
               socials,
             },
+            ...(phone ? { $set: { phone } } : {}),
           },
           { upsert: true, new: true, session },
         )
       : (
-          await Contact.create([{ workspaceId, organizationId: org._id, name: post.author, handles: { [platform]: handle }, socials }], {
+          await Contact.create([{ workspaceId, organizationId: org._id, name: post.author, phone, handles: { [platform]: handle }, socials }], {
             session,
             ordered: true,
           })
