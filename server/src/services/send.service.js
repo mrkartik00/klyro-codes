@@ -5,6 +5,7 @@ import { Enrollment } from '../models/Enrollment.js';
 import { Contact } from '../models/Contact.js';
 import { Lead } from '../models/Lead.js';
 import { Organization } from '../models/Organization.js';
+import { PitchPage } from '../models/PitchPage.js';
 import { Campaign, SequenceStep } from '../models/Campaign.js';
 import { withTransaction } from '../utils/transaction.js';
 import { isSuppressed } from './suppression.service.js';
@@ -87,6 +88,16 @@ export async function claimSend({ workspaceId, enrollmentId, stepOrder }) {
     const approval = await Approval.findOne({ workspaceId, enrollmentId, stepOrder }).session(session);
     if (approval && approval.status !== 'approved') {
       return { claimed: false, reason: `draft_${approval.status}` };
+    }
+
+    // Last line of defence: never send an email that links a pitch page which
+    // has no content (or no longer exists). Prevents "empty proposal" links.
+    const draftText = `${approval?.draft?.subject ?? ''} ${approval?.draft?.body ?? ''}`;
+    const pitchLink = draftText.match(/https?:\/\/\S*\/pitch\/([^/?\s]+)\?t=([^\s&)]+)/i);
+    if (pitchLink) {
+      const page = await PitchPage.findOne({ workspaceId, slug: pitchLink[1], deletedAt: null }).session(session);
+      const ok = page && page.token === pitchLink[2] && Array.isArray(page.sections) && page.sections.length > 0;
+      if (!ok) return { claimed: false, reason: 'pitch_empty_or_missing' };
     }
 
     const contact = await Contact.findOne({ workspaceId, _id: enrollment.contactId }).session(session);

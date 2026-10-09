@@ -84,7 +84,10 @@ export async function draftStep({ workspaceId, enrollmentId, stepOrder, tone, ac
     const contact = enr.contactId ? await Contact.findOne({ workspaceId, _id: enr.contactId }).session(session) : null;
     const pitch = await PitchPage.findOne({ workspaceId, leadId: enr.leadId, deletedAt: null }).session(session);
     const firstName = String(contact?.name ?? '').trim().split(/\s+/)[0] || 'there';
-    const pitchUrl = pitch ? `${env.WEB_ORIGIN.replace(/\/$/, '')}/pitch/${pitch.slug}?t=${pitch.token}` : null;
+    // Only link a pitch page that actually has content — never send a prospect
+    // to an empty "no content yet" page.
+    const pitchHasContent = Array.isArray(pitch?.sections) && pitch.sections.length > 0;
+    const pitchUrl = pitchHasContent ? `${env.WEB_ORIGIN.replace(/\/$/, '')}/pitch/${pitch.slug}?t=${pitch.token}` : null;
 
     const draft = await draftEmail({
       business: { name: org?.name, city: org?.city, category: org?.category, country: org?.country, domain: org?.domain },

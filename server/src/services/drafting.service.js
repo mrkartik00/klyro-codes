@@ -14,6 +14,10 @@ export function checkDraft(draft, facts) {
     issues.push('placeholder');
   }
   if (SPAM_WORDS.some((w) => body.includes(w))) issues.push('spam_words');
+  // A /pitch/ link must be exactly the valid pitchUrl we provided. Any other
+  // (or any pitch link when none was provided) means a broken/empty-page link.
+  const pitchLinks = `${draft?.subject ?? ''} ${draft?.body ?? ''}`.match(/https?:\/\/\S*\/pitch\/\S+/gi) || [];
+  if (pitchLinks.some((l) => l.replace(/[.,)]+$/, '') !== facts.pitchUrl)) issues.push('bad_pitch_link');
   // Must reference at least one real fact (name or city) to be personalized.
   const refs = [facts.businessName, facts.city].filter(Boolean).map((s) => s.toLowerCase());
   if (refs.length && !refs.some((r) => body.includes(r))) issues.push('not_personalized');
@@ -49,6 +53,20 @@ export function fillTemplate(text, vars) {
     .replace(/[ \t]{2,}/g, ' ');
 }
 
+/**
+ * Remove any sentence/line that references a pitch/preview page or links to a
+ * /pitch/ URL. Used as a safety net when there is no valid pitch URL so an
+ * email can never point a prospect to an empty page.
+ */
+export function stripPitchReferences(text) {
+  return String(text ?? '')
+    .split(/\n/)
+    .filter((line) => !/https?:\/\/\S*\/pitch\//i.test(line) && !/\b(preview|proposal|mock-?up|short page|sample (site|page))\b/i.test(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /** Produce a validated draft. Falls back to a template-based draft if AI fails. */
 export async function draftEmail({ business, audit, template, tone, channel = 'email', vars: extraVars = {} }) {
   const vars = {
@@ -60,8 +78,16 @@ export async function draftEmail({ business, audit, template, tone, channel = 'e
     ...Object.fromEntries(Object.entries(extraVars).filter(([, v]) => v != null && v !== '')),
   };
   const finish = (d) => {
-    const out = { ...d, subject: fillTemplate(d.subject, vars), body: fillTemplate(d.body, vars) };
-    const check = checkDraft(out, { businessName: business.name, city: business.city });
+    let subject = fillTemplate(d.subject, vars);
+    let body = fillTemplate(d.body, vars);
+    // Safety net: if there's no valid pitch URL, remove any pitch reference the
+    // model or template may have produced, so we never link an empty page.
+    if (!vars.pitchUrl) {
+      body = stripPitchReferences(body);
+      subject = stripPitchReferences(subject);
+    }
+    const out = { ...d, subject, body };
+    const check = checkDraft(out, { businessName: business.name, city: business.city, pitchUrl: vars.pitchUrl });
     return check.ok ? out : { ...out, guardrailIssues: [...new Set([...(d.guardrailIssues ?? []), ...check.issues])] };
   };
   const d = finish(await draftRaw({ business, audit, template, tone, channel, hasPitch: Boolean(vars.pitchUrl) }));
