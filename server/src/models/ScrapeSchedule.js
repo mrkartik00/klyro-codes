@@ -17,7 +17,7 @@ const scrapeScheduleSchema = new mongoose.Schema({
   timezone: { type: String, default: 'Asia/Kolkata' },
   // What it runs: every search in some categories, or hand-picked searches.
   mode: { type: String, enum: ['group', 'pick'], default: 'group' },
-  source: { type: String, enum: [...['maps', 'reddit', 'freelancer', 'hackernews', 'tenders', 'bluesky', 'brave', 'x', 'companieshouse'], 'any', 'social'], default: 'any' }, // social = every source except Maps
+  source: { type: String, enum: [...['maps', 'reddit', 'freelancer', 'hackernews', 'tenders', 'bluesky', 'brave', 'x', 'companieshouse', 'googleplaces', 'apify'], 'any', 'social'], default: 'any' }, // social = every source except Maps
   groups: { type: [String], default: [] }, // empty = all categories
   targetIds: { type: [mongoose.Schema.Types.ObjectId], ref: 'ScrapeTarget', default: [] },
   perRun: { type: Number, default: 1 }, // searches per run (oldest first); 0 = all
