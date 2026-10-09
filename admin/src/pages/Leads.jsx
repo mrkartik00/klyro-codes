@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search } from 'lucide-react';
 import { LEAD_STAGES } from '@klyro/shared/enums';
@@ -52,19 +52,42 @@ export default function Leads() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
-  const [stage, setStage] = useState('');
-  const [platform, setPlatform] = useState('');
-  const [minScore, setMinScore] = useState('');
-  const [since, setSince] = useState(() => new URLSearchParams(window.location.search).get('since') || '');
-  const [q, setQ] = useState('');
-  const [page, setPage] = useState(1);
+  // Filters live in the URL so they survive navigating into a lead and back,
+  // and make a filtered view shareable/bookmarkable.
+  const [params, setParams] = useSearchParams();
+  const stage = params.get('stage') || '';
+  const platform = params.get('source') || '';
+  const minScore = params.get('minScore') || '';
+  const since = params.get('since') || '';
+  const page = Math.max(1, Number(params.get('page')) || 1);
+  // Update one or more params; dropping empties keeps the URL clean. Any filter
+  // change (other than page) resets to page 1.
+  const setFilters = (patch, { resetPage = true } = {}) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        for (const [k, v] of Object.entries(patch)) {
+          if (v === '' || v == null) next.delete(k);
+          else next.set(k, String(v));
+        }
+        if (resetPage && !('page' in patch)) next.delete('page');
+        return next;
+      },
+      { replace: true },
+    );
+
+  const [q, setQ] = useState(() => params.get('q') || '');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_LEAD);
   const search = useDebounced(q);
   const [selected, setSelected] = useState(() => new Set());
   const [bulkStage, setBulkStage] = useState('');
 
-  useEffect(() => setPage(1), [stage, platform, minScore, search, since]);
+  // Keep the debounced search term in the URL (so it persists on back nav too).
+  useEffect(() => {
+    if ((params.get('q') || '') !== search) setFilters({ q: search });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   const { data, isLoading, isError, isFetching } = useQuery({
     queryKey: ['leads', stage, platform, minScore, search, page, since],
@@ -141,7 +164,7 @@ export default function Leads() {
           <Input aria-label="Search leads" className="pl-9" placeholder="Search business name…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <div className="sm:w-48">
-          <Select aria-label="Filter by stage" value={stage} onChange={(e) => setStage(e.target.value)} className="capitalize">
+          <Select aria-label="Filter by stage" value={stage} onChange={(e) => setFilters({ stage: e.target.value })} className="capitalize">
             <option value="">All stages</option>
             {LEAD_STAGES.map((s) => (
               <option key={s} value={s}>
@@ -151,7 +174,7 @@ export default function Leads() {
           </Select>
         </div>
         <div className="sm:w-44">
-          <Select aria-label="Filter by where the lead was found" value={platform} onChange={(e) => setPlatform(e.target.value)}>
+          <Select aria-label="Filter by where the lead was found" value={platform} onChange={(e) => setFilters({ source: e.target.value })}>
             <option value="">All sources</option>
             {Object.entries(PLATFORM_LABEL)
               .filter(([k]) => k !== 'import')
@@ -163,7 +186,7 @@ export default function Leads() {
           </Select>
         </div>
         <div className="sm:w-44">
-          <Select aria-label="Added" value={since} onChange={(e) => setSince(e.target.value)}>
+          <Select aria-label="Added" value={since} onChange={(e) => setFilters({ since: e.target.value })}>
             <option value="">Added: any time</option>
             <option value="12">Last 12 hours</option>
             <option value="24">Last 24 hours</option>
@@ -172,7 +195,7 @@ export default function Leads() {
           </Select>
         </div>
         <div className="sm:w-36">
-          <Input aria-label="Minimum score" type="number" inputMode="numeric" placeholder="Min score" value={minScore} onChange={(e) => setMinScore(e.target.value)} />
+          <Input aria-label="Minimum score" type="number" inputMode="numeric" placeholder="Min score" value={minScore} onChange={(e) => setFilters({ minScore: e.target.value })} />
         </div>
       </div>
 
@@ -303,13 +326,13 @@ export default function Leads() {
 
       {pages > 1 && (
         <nav className="flex items-center justify-between text-sm" aria-label="Pagination">
-          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setFilters({ page: page - 1 }, { resetPage: false })}>
             Previous
           </Button>
           <span className="text-muted-foreground">
             Page {page} of {pages}
           </span>
-          <Button variant="secondary" size="sm" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
+          <Button variant="secondary" size="sm" disabled={page >= pages} onClick={() => setFilters({ page: page + 1 }, { resetPage: false })}>
             Next
           </Button>
         </nav>
