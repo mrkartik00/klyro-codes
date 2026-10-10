@@ -9,10 +9,19 @@ import { writeAudit } from './audit.service.js';
 import { suppress } from './suppression.service.js';
 import { transition } from './transition.service.js';
 import { recordEvent } from './analytics.service.js';
+import { handleBounce } from './pipeline.service.js';
 
 // How each reply class affects the pipeline.
 const POSITIVE = new Set(['interested', 'question']);
 const STOP = new Set(['interested', 'question', 'objection', 'not_interested', 'referral', 'unsubscribe']);
+
+// Delivery Status Notifications / auto-generated bounces must NEVER be treated
+// as a human reply — they are routed to bounce handling instead.
+const DSN_SUBJECT = /(delivery status notification|undeliverable|mail delivery (failed|subsystem)|returned mail|delivery (has )?failed|failure notice|message not delivered)/i;
+const DSN_SENDER = /^(mailer-daemon|postmaster|no-?reply)@/i;
+export function isDeliveryFailure({ subject, body, from, contactEmail }) {
+  return DSN_SUBJECT.test(subject || '') || DSN_SENDER.test(from || contactEmail || '') || /\b5\.\d\.\d\b|550[ -]/.test(body || '');
+}
 
 /**
  * Handle an inbound reply atomically:
@@ -33,6 +42,14 @@ export async function handleReply({
   threadId,
   actorId,
 }) {
+  // A delivery-failure notification is a bounce, not a reply. Handle it as a
+  // bounce (suppress + stop enrollment) and never count it as a reply or a
+  // positive signal. Done before the reply transaction.
+  if (isDeliveryFailure({ subject, body, contactEmail })) {
+    const r = await handleBounce({ workspaceId, providerMessageId, headerToken: null, contactEmail, dsnText: body || subject, actorId });
+    return { handled: true, bounce: true, ...r };
+  }
+
   return withTransaction(async (session) => {
     const enrollment = await Enrollment.findOne({ workspaceId, _id: enrollmentId }).session(session);
     if (!enrollment) throw new Error('Enrollment not found');
