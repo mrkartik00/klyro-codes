@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { Mailbox } from '../models/Mailbox.js';
+import { SocialAccount } from '../models/SocialAccount.js';
 import { Message } from '../models/Message.js';
 import { Enrollment } from '../models/Enrollment.js';
 import { Contact } from '../models/Contact.js';
@@ -15,6 +16,7 @@ import { ApiError } from '../utils/ApiError.js';
 import { Approval } from '../models/Approval.js';
 import { makeToken } from '../utils/publicToken.js';
 import { env } from '../config/env.js';
+import { SOCIAL_CHANNELS } from '@klyro/shared/enums';
 
 /** Signed one-click unsubscribe URL for a recipient (RFC 8058 compatible). */
 export function unsubscribeUrl(workspaceId, email) {
@@ -26,8 +28,8 @@ export function unsubscribeUrl(workspaceId, email) {
  * Steps ready to send: an approved draft exists, the enrollment is still
  * active on that step and due, and nothing has been sent for it yet.
  */
-export async function readySends({ workspaceId, limit = 20 }) {
-  const approvals = await Approval.find({ workspaceId, status: 'approved', channel: 'email' })
+export async function readySends({ workspaceId, limit = 20, channel = 'email' }) {
+  const approvals = await Approval.find({ workspaceId, status: 'approved', channel })
     .sort({ decidedAt: 1 })
     .limit(limit * 10)
     .lean();
@@ -55,6 +57,94 @@ export async function readySends({ workspaceId, limit = 20 }) {
 }
 
 const INCORPORATED = new Set(['ltd', 'llp', 'plc']);
+
+/**
+ * Atomically reserve a send slot on a connected social account (LinkedIn/IG).
+ *
+ * Mirrors claimSend for email but: requires contact.linkedin (profile URL),
+ * reserves a SocialAccount of the right channel (atomic $inc under dailyCap AND
+ * respecting sendGapMs since lastSentAt), and skips email-only guards (pitch
+ * link, email suppression uses the profile URL). Idempotent per (enrollment,
+ * step). Returns the payload the worker needs to call Unipile.
+ */
+export async function claimSocialSend({ workspaceId, enrollmentId, stepOrder, channel }) {
+  if (!SOCIAL_CHANNELS.includes(channel)) throw ApiError.badRequest(`Unsupported social channel: ${channel}`);
+  return withTransaction(async (session) => {
+    const enrollment = await Enrollment.findOne({ workspaceId, _id: enrollmentId }).session(session);
+    if (!enrollment) throw ApiError.notFound('Enrollment not found');
+    if (enrollment.status !== 'active') return { claimed: false, reason: `enrollment_${enrollment.status}` };
+
+    const existing = await Message.findOne({ workspaceId, enrollmentId, stepOrder, direction: 'outbound' }).session(session);
+    if (existing) return { claimed: true, messageId: existing._id, idempotent: true };
+
+    const approval = await Approval.findOne({ workspaceId, enrollmentId, stepOrder }).session(session);
+    if (approval && approval.status !== 'approved') return { claimed: false, reason: `draft_${approval.status}` };
+    if (!approval?.draft?.body) return { claimed: false, reason: 'no_draft' };
+
+    const contact = await Contact.findOne({ workspaceId, _id: enrollment.contactId }).session(session);
+    const profileUrl = contact?.linkedinUrl || contact?.socials?.linkedin || null;
+    if (!profileUrl) return { claimed: false, reason: 'no_profile' };
+    if (await isSuppressed({ workspaceId, linkedin: profileUrl }, session)) return { claimed: false, reason: 'suppressed' };
+
+    // Local send window (same policy as email).
+    const lead = await Lead.findOne({ workspaceId, _id: enrollment.leadId }).session(session);
+    const campaign = await Campaign.findOne({ workspaceId, _id: enrollment.campaignId }).session(session);
+    const window = campaign?.sendWindow ?? { startHour: 9, endHour: 17, businessDaysOnly: true };
+    if (!isWithinSendWindow(new Date(), window, lead?.timezone || 'UTC')) {
+      return { claimed: false, reason: 'outside_send_window' };
+    }
+
+    // Reserve a social account: active, same channel, under cap, AND the send
+    // gap has elapsed. The $expr serialises concurrent claims (cap safe).
+    const gapCutoff = new Date();
+    const account = await SocialAccount.findOneAndUpdate(
+      {
+        workspaceId,
+        channel,
+        status: 'active',
+        $expr: {
+          $and: [
+            { $lt: ['$sentToday', '$dailyCap'] },
+            { $or: [{ $eq: ['$lastSentAt', null] }, { $lte: ['$lastSentAt', { $subtract: [gapCutoff, '$sendGapMs'] }] }] },
+          ],
+        },
+      },
+      { $inc: { sentToday: 1 }, $set: { lastSentAt: gapCutoff } },
+      { sort: { sentToday: 1 }, new: true, session },
+    );
+    if (!account) return { claimed: false, reason: 'no_account_available' };
+
+    const [message] = await Message.create(
+      [
+        {
+          workspaceId,
+          enrollmentId,
+          leadId: enrollment.leadId,
+          contactId: enrollment.contactId,
+          channel,
+          stepOrder,
+          direction: 'outbound',
+          status: 'sending',
+          body: approval.draft.body,
+          threadId: enrollment.threadId,
+        },
+      ],
+      { session, ordered: true },
+    );
+
+    return {
+      claimed: true,
+      messageId: message._id,
+      channel,
+      accountId: account.accountId,
+      pullAccountId: account.pullAccountId,
+      profileUrl,
+      providerId: contact.linkedinProviderId || null,
+      body: approval.draft.body,
+      threadId: enrollment.threadId,
+    };
+  });
+}
 
 /**
  * Atomically reserve a send slot on an available mailbox.
@@ -220,9 +310,9 @@ export async function recordSendResult({
         // otherwise the sequence is complete.
         await advanceEnrollment({ workspaceId, enrollment, fromStep: message.stepOrder }, session);
       }
-      // Record a 'sent' analytics event in the same txn.
+      // Record a 'sent' analytics event in the same txn (channel-aware).
       await recordEvent(
-        { workspaceId, type: 'sent', channel: 'email', mailboxId: message.mailboxId, leadId: message.leadId },
+        { workspaceId, type: 'sent', channel: message.channel || 'email', mailboxId: message.mailboxId, leadId: message.leadId },
         session,
       );
       // On send failure we do NOT refund sentToday: the attempt still touched

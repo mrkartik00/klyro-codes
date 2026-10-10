@@ -11,7 +11,9 @@ export function draftPrompt({ business, audit, template, tone = 'friendly, conci
   };
   const format =
     channel === 'linkedin'
-      ? 'a LinkedIn connection note: max 280 characters, no subject needed (use "LinkedIn note"), no links'
+      ? 'a LinkedIn direct message: max 300 characters, no subject needed (use "LinkedIn message"), no links, no line breaks, no emojis. ' +
+        'Open with a specific reference to a real detail (their headline, stated focus, or a recent post) — never "I noticed", "I came across", or "I hope this finds you well". ' +
+        'One sentence on what you do and for whom, then one clear call to action (a short call or a specific question).'
       : channel === 'x' || channel === 'instagram'
         ? `a short, friendly ${channel === 'x' ? 'X (Twitter) DM' : 'Instagram DM'}: max 60 words, no links, no subject needed`
         : 'a short B2B cold email: max 120 words, one clear call to action (reply or book a call)';

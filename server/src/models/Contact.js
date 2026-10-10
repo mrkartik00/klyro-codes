@@ -10,6 +10,7 @@ const contactSchema = new mongoose.Schema({
   phone: { type: String, default: null },
   title: { type: String },
   linkedinUrl: { type: String },
+  linkedinProviderId: { type: String, default: null }, // cached Unipile internal id
   // Person-level profiles/handles, e.g. { reddit: 'u/jane', x: '@jane' } + URLs.
   socials: {
     linkedin: String,

@@ -11,6 +11,7 @@ import { Workspace } from '../models/Workspace.js';
 import { runDueSchedules } from '../services/schedule.service.js';
 import { sendDigest } from '../services/digest.service.js';
 import { autoEnrollWorkspace } from '../services/enrollment.service.js';
+import { runAllLinkedInSends } from '../services/social.send.service.js';
 
 const connection = () => getRedis();
 const registry = [];
@@ -26,7 +27,8 @@ export function startQueues() {
   const scheduler = new Queue('scrapeScheduler', opts);
   const digest = new Queue('morningDigest', opts);
   const autoEnroll = new Queue('autoEnroll', opts);
-  registry.push(health, daily, rollup, reminders, scheduler, digest, autoEnroll);
+  const linkedinSend = new Queue('linkedinSend', opts);
+  registry.push(health, daily, rollup, reminders, scheduler, digest, autoEnroll, linkedinSend);
 
   const mbWorker = new Worker(
     'mailboxHealth',
@@ -86,6 +88,10 @@ export function startQueues() {
     opts,
   );
 
+  // Drain approved LinkedIn drafts through Unipile (OFF unless
+  // LINKEDIN_SENDING_ENABLED). Cap + 5-min gap enforced in claimSocialSend.
+  const linkedinSendWorker = new Worker('linkedinSend', async () => runAllLinkedInSends(), opts);
+
   // Surface worker failures to Telegram instead of failing silently.
   for (const [name, w] of [
     ['mailboxHealth', mbWorker],
@@ -95,6 +101,7 @@ export function startQueues() {
     ['scrapeScheduler', schedulerWorker],
     ['morningDigest', digestWorker],
     ['autoEnroll', autoEnrollWorker],
+    ['linkedinSend', linkedinSendWorker],
   ]) {
     w.on('failed', (_job, err) => {
       logger.error({ err, worker: name }, 'BullMQ worker failed');
@@ -113,8 +120,10 @@ export function startQueues() {
   digest.add('daily', {}, { repeat: { pattern: env.DIGEST_CRON || '30 7 * * *', tz: env.DIGEST_TZ || 'Asia/Kolkata' }, removeOnComplete: true });
   // Keep the active email campaign topped up with eligible leads, every 30 min.
   autoEnroll.add('tick', {}, { repeat: { pattern: '*/30 * * * *' }, removeOnComplete: true, removeOnFail: 50 });
+  // Drain approved LinkedIn drafts every minute (no-op unless sending enabled).
+  linkedinSend.add('tick', {}, { repeat: { pattern: '* * * * *' }, removeOnComplete: true, removeOnFail: 50 });
 
-  logger.info('BullMQ queues started (mailboxHealth, dailyReset, metricsRollup, invoiceReminders, scrapeScheduler, morningDigest, autoEnroll)');
+  logger.info('BullMQ queues started (mailboxHealth, dailyReset, metricsRollup, invoiceReminders, scrapeScheduler, morningDigest, autoEnroll, linkedinSend)');
 }
 
 export async function stopQueues() {

@@ -1,4 +1,5 @@
 import { Mailbox } from '../models/Mailbox.js';
+import { SocialAccount } from '../models/SocialAccount.js';
 import { Message } from '../models/Message.js';
 import { MAILBOX_LIMITS, WARMUP_RAMP } from '../config/constants.js';
 
@@ -54,4 +55,5 @@ export function warmupCap(warmupStartedAt, now = new Date()) {
 /** Reset sentToday for all mailboxes (run at midnight UTC). */
 export async function resetDailyCounters() {
   await Mailbox.updateMany({}, { $set: { sentToday: 0 } });
+  await SocialAccount.updateMany({}, { $set: { sentToday: 0 } });
 }

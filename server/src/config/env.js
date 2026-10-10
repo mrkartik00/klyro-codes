@@ -50,6 +50,11 @@ const schema = z.object({
   FIRECRAWL_API_KEY: z.string().optional(), // website fetch/read for enrichment
   SCRAPINGBEE_API_KEY: z.string().optional(), // website fetch via proxies (enrichment fallback)
   SCRAPLING_URL: z.string().optional(), // optional self-hosted Scrapling HTTP sidecar
+  // Social outreach (Unipile). Sending is OFF unless this is explicitly 'true'.
+  LINKEDIN_SENDING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   DIGEST_CRON: z.string().optional(), // morning digest time (default 07:30)
   DIGEST_TZ: z.string().optional(),

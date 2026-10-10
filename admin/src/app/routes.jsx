@@ -16,6 +16,7 @@ const Campaigns = lazy(() => import('../pages/Campaigns.jsx'));
 const CampaignDetail = lazy(() => import('../pages/CampaignDetail.jsx'));
 const Templates = lazy(() => import('../pages/Templates.jsx'));
 const Mailboxes = lazy(() => import('../pages/Mailboxes.jsx'));
+const LinkedIn = lazy(() => import('../pages/LinkedIn.jsx'));
 const Approvals = lazy(() => import('../pages/Approvals.jsx'));
 const Deals = lazy(() => import('../pages/Deals.jsx'));
 const Quotations = lazy(() => import('../pages/Quotations.jsx'));
@@ -70,6 +71,7 @@ export function AppRoutes() {
         <Route path="/campaigns/:id" element={<Page><CampaignDetail /></Page>} />
         <Route path="/templates" element={<Page><Templates /></Page>} />
         <Route path="/mailboxes" element={<Page><Mailboxes /></Page>} />
+        <Route path="/linkedin" element={<Page><LinkedIn /></Page>} />
         <Route path="/approvals" element={<Page><Approvals /></Page>} />
         <Route path="/deals" element={<Page><Deals /></Page>} />
         <Route path="/quotations" element={<Page><Quotations /></Page>} />

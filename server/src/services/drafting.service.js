@@ -7,9 +7,15 @@ const SPAM_WORDS = ['free money', 'guarantee', 'act now', 'risk-free', 'winner',
 /** Validate a draft against guardrails. Returns { ok, issues }. */
 export function checkDraft(draft, facts) {
   const issues = [];
-  if (!draft?.subject || !draft?.body) issues.push('missing_fields');
+  const isSocial = facts.channel && facts.channel !== 'email';
+  // Email needs a subject + body; social DMs (LinkedIn/IG/X) are body-only.
+  if (!draft?.body || (!isSocial && !draft?.subject)) issues.push('missing_fields');
   const body = (draft?.body ?? '').toLowerCase();
-  if (body.length > 900) issues.push('too_long');
+  if (isSocial) {
+    if ((draft?.body ?? '').length > 300) issues.push('too_long');
+  } else if (body.length > 900) {
+    issues.push('too_long');
+  }
   if (/\[[a-z ]+\]/i.test(draft?.body ?? '') || /\{\{\s*\w+\s*\}\}/.test(`${draft?.subject ?? ''} ${draft?.body ?? ''}`)) {
     issues.push('placeholder');
   }
@@ -95,7 +101,7 @@ export async function draftEmail({ business, audit, template, tone, channel = 'e
       subject = stripPitchReferences(subject);
     }
     const out = { ...d, subject, body };
-    const check = checkDraft(out, { businessName: business.name, city: business.city, pitchUrl: vars.pitchUrl });
+    const check = checkDraft(out, { businessName: business.name, city: business.city, pitchUrl: vars.pitchUrl, channel });
     return check.ok ? out : { ...out, guardrailIssues: [...new Set([...(d.guardrailIssues ?? []), ...check.issues])] };
   };
   const d = finish(await draftRaw({ business, audit, template, tone, channel, hasPitch: Boolean(vars.pitchUrl) }));

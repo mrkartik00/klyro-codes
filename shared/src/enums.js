@@ -17,6 +17,10 @@ export const CHANNELS = Object.freeze([
 export const LEAD_PLATFORMS = Object.freeze(['maps', 'reddit', 'linkedin', 'x', 'instagram', 'facebook', 'inbound', 'csv', 'manual']);
 export const MANUAL_CHANNELS = Object.freeze(['reddit', 'linkedin', 'x', 'instagram']);
 
+// Channels that can be sent automatically via a connected social account (Unipile).
+export const SOCIAL_CHANNELS = Object.freeze(['linkedin', 'instagram', 'whatsapp']);
+export const SOCIAL_ACCOUNT_STATUSES = Object.freeze(['active', 'paused', 'restricted']);
+
 export const CURRENCIES = Object.freeze(['USD', 'GBP', 'INR']);
 
 export const COMPANY_TYPES = Object.freeze(['ltd', 'llp', 'plc', 'sole_trader', 'unknown']);
@@ -90,7 +94,7 @@ export const REPLY_CLASSES = Object.freeze([
   'needs_review',
 ]);
 
-export const SUPPRESSION_TYPES = Object.freeze(['email', 'domain', 'phone']);
+export const SUPPRESSION_TYPES = Object.freeze(['email', 'domain', 'phone', 'linkedin']);
 
 // Allowed status transitions, consumed by utils/stateMachine.js.
 export const TRANSITIONS = Object.freeze({

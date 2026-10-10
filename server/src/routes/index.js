@@ -14,6 +14,7 @@ import { manageRouter } from './manage.routes.js';
 import { schedulesRouter } from './schedules.routes.js';
 import { clipRouter } from './clip.routes.js';
 import { keysRouter } from './keys.routes.js';
+import { linkedinRouter } from './linkedin.routes.js';
 
 // All admin routes require an authenticated admin with 2FA, workspace-scoped.
 export const adminRouter = Router();
@@ -21,6 +22,7 @@ adminRouter.use(requireAuth, requireAdmin, requireTwoFactor, tenantScope);
 
 adminRouter.use('/leads', leadsRouter);
 adminRouter.use('/outreach', outreachRouter);
+adminRouter.use('/linkedin', linkedinRouter);
 adminRouter.use('/deals', dealsRouter);
 adminRouter.use('/quotations', quotationsRouter);
 adminRouter.use('/portfolio', portfolioRouter);
