@@ -27,17 +27,33 @@ def fetch():
     url = (data.get("url") or "").strip()
     if not url:
         return jsonify(error="url required"), 400
-    try:
-        r = Fetcher.get(url, timeout=25, stealthy_headers=True)
+
+    def do_fetch(**extra):
+        r = Fetcher.get(url, timeout=25, stealthy_headers=True, **extra)
         html = getattr(r, "html_content", "") or ""
-        links = []
         try:
             links = [a.attrib.get("href") for a in r.css("a[href]")][:200]
         except Exception:
             links = []
         return jsonify(html=html, links=[l for l in links if l], status=getattr(r, "status", None))
-    except Exception as e:  # noqa: BLE001 - surface a clean error to the caller
-        return jsonify(error=str(e)[:300]), 502
+
+    try:
+        return do_fetch()
+    except Exception as e:  # noqa: BLE001
+        msg = str(e)
+        # Many small-business sites have broken/mismatched TLS certs. That is a
+        # property of the TARGET site (and itself a lead signal), not a sidecar
+        # fault — retry once without certificate verification so enrichment can
+        # still read the page. We only need the HTML, not a trust decision.
+        if "SSL" in msg or "certificate" in msg.lower() or "TLS" in msg:
+            try:
+                return do_fetch(verify=False)
+            except Exception as e2:  # noqa: BLE001
+                return jsonify(error=str(e2)[:300], kind="target_site"), 200
+        # Any other failure is also the target site's problem; return 200 with an
+        # error field so the Node fallback chain continues and the provider is
+        # not marked down for a single bad URL.
+        return jsonify(error=msg[:300], kind="target_site"), 200
 
 
 if __name__ == "__main__":

@@ -88,8 +88,10 @@ async function fetchWithScrapling(url) {
       return null;
     }
     const data = await res.json().catch(() => null);
-    if (!data?.html) return null;
+    // The sidecar answered (provider is healthy) even if THIS target site failed
+    // (e.g. broken TLS). Clear any stale provider issue, then fall through.
     reportOk('scrapling');
+    if (!data?.html) return null;
     return { provider: 'scrapling', html: data.html, markdown: data.markdown || '', links: data.links || [] };
   } catch (err) {
     reportIssue('scrapling', reasonFor(err.name));
