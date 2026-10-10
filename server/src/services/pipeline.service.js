@@ -90,7 +90,7 @@ export async function draftStep({ workspaceId, enrollmentId, stepOrder, tone, ac
     const pitchUrl = pitchHasContent ? `${env.WEB_ORIGIN.replace(/\/$/, '')}/pitch/${pitch.slug}?t=${pitch.token}` : null;
 
     const draft = await draftEmail({
-      business: { name: org?.name, city: org?.city, category: org?.category, country: org?.country, domain: org?.domain },
+      business: { name: org?.name, city: org?.city, category: org?.category, country: org?.country, domain: org?.domain, headline: contact?.title || null },
       audit: audit ? { issues: audit.issues, mobileScore: audit.mobileScore } : {},
       template: template?.variants?.[0],
       tone,

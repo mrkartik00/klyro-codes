@@ -24,8 +24,10 @@ export function checkDraft(draft, facts) {
   // (or any pitch link when none was provided) means a broken/empty-page link.
   const pitchLinks = `${draft?.subject ?? ''} ${draft?.body ?? ''}`.match(/https?:\/\/\S*\/pitch\/\S+/gi) || [];
   if (pitchLinks.some((l) => l.replace(/[.,)]+$/, '') !== facts.pitchUrl)) issues.push('bad_pitch_link');
-  // Must reference at least one real fact (name or city) to be personalized.
+  // Must reference at least one real fact to be personalized. For social DMs the
+  // recipient's first name (always addressed) counts, since the DM is 1:1.
   const refs = [facts.businessName, facts.city].filter(Boolean).map((s) => s.toLowerCase());
+  if (isSocial && facts.businessName) refs.push(String(facts.businessName).trim().split(/\s+/)[0].toLowerCase());
   if (refs.length && !refs.some((r) => body.includes(r))) issues.push('not_personalized');
   return { ok: issues.length === 0, issues };
 }
