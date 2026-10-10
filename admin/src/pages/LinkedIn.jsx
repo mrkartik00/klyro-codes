@@ -172,7 +172,7 @@ export default function LinkedIn() {
       {/* Pending DMs review list */}
       <div className="mt-6">
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-heading text-lg font-semibold">Pending DMs ({draftRows.length})</h2>
+          <h2 className="font-heading text-lg font-semibold">DMs ({draftRows.length})</h2>
           <Link to="/approvals" className="text-sm text-blue-300 hover:underline">
             Review in Approvals →
           </Link>
@@ -188,6 +188,7 @@ export default function LinkedIn() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{d.name}</span>
+                        <Badge variant={d.status === 'approved' ? 'success' : 'warning'}>{d.status}</Badge>
                         {d.linkedinUrl && (
                           <a href={d.linkedinUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-300 hover:underline">
                             profile <ExternalLink size={12} aria-hidden="true" />

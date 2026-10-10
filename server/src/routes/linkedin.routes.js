@@ -127,12 +127,12 @@ linkedinRouter.post(
   }),
 );
 
-/** Pending LinkedIn DM drafts with recipient info, for review on the page. */
+/** Pending + approved LinkedIn DM drafts with recipient info, for review. */
 linkedinRouter.get(
   '/drafts',
   asyncHandler(async (req, res) => {
     const workspaceId = req.workspaceId;
-    const approvals = await Approval.find({ workspaceId, channel: 'linkedin', status: 'pending' })
+    const approvals = await Approval.find({ workspaceId, channel: 'linkedin', status: { $in: ['pending', 'approved'] } })
       .sort({ createdAt: -1 })
       .limit(50)
       .lean();
@@ -145,6 +145,7 @@ linkedinRouter.get(
       rows.push({
         approvalId: a._id,
         leadId: a.leadId,
+        status: a.status,
         name: contact?.name || 'Unknown',
         title: contact?.title || '',
         linkedinUrl: contact?.linkedinUrl || null,
