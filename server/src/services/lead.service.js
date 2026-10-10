@@ -15,11 +15,15 @@ async function ingestOne({ workspaceId, source, reference, record, createdBy }, 
   const domain = registrableDomain(record.website || record.domain);
   const phone = normalizePhone(record.phone, record.country);
   const placeId = record.placeId || null;
+  const linkedinUrl = record.linkedinUrl ? String(record.linkedinUrl).replace(/\/$/, '').toLowerCase() : null;
 
   const dedupe = [];
   if (placeId) dedupe.push({ placeId });
   if (domain) dedupe.push({ domain });
   if (phone) dedupe.push({ phone });
+  // LinkedIn-profile leads have no placeId/domain/phone — dedupe by the
+  // organization's linkedinUrl so re-scraping the same person is idempotent.
+  if (linkedinUrl) dedupe.push({ linkedinUrl });
 
   let org = dedupe.length
     ? await Organization.findOne({ workspaceId, $or: dedupe }).session(session)
@@ -35,6 +39,7 @@ async function ingestOne({ workspaceId, source, reference, record, createdBy }, 
           placeId,
           domain,
           phone,
+          linkedinUrl,
           address: record.address,
           city: record.city,
           country: record.country,
@@ -52,6 +57,7 @@ async function ingestOne({ workspaceId, source, reference, record, createdBy }, 
     org.name ||= record.name;
     org.domain ||= domain;
     org.phone ||= phone;
+    org.linkedinUrl ||= linkedinUrl;
     org.rating ??= record.rating;
     org.reviewCount ??= record.reviewCount;
     await org.save({ session });
@@ -61,7 +67,21 @@ async function ingestOne({ workspaceId, source, reference, record, createdBy }, 
   if (isUsableEmail(record.email)) {
     contact = await Contact.findOneAndUpdate(
       { workspaceId, email: record.email.toLowerCase() },
-      { $setOnInsert: { workspaceId, createdBy, organizationId: org._id, email: record.email.toLowerCase(), name: record.contactName, title: record.contactTitle } },
+      {
+        $setOnInsert: { workspaceId, createdBy, organizationId: org._id, email: record.email.toLowerCase(), name: record.contactName, title: record.contactTitle },
+        ...(linkedinUrl || record.linkedinProviderId ? { $set: { ...(linkedinUrl ? { linkedinUrl } : {}), ...(record.linkedinProviderId ? { linkedinProviderId: record.linkedinProviderId } : {}) } } : {}),
+      },
+      { upsert: true, new: true, session },
+    );
+  } else if (linkedinUrl) {
+    // A LinkedIn-profile lead: the person IS the lead (no email yet). Dedupe
+    // the contact by profile URL so follow-up scrapes update, not duplicate.
+    contact = await Contact.findOneAndUpdate(
+      { workspaceId, linkedinUrl },
+      {
+        $setOnInsert: { workspaceId, createdBy, organizationId: org._id, linkedinUrl, name: record.contactName || record.name, title: record.contactTitle || record.headline },
+        ...(record.linkedinProviderId ? { $set: { linkedinProviderId: record.linkedinProviderId } } : {}),
+      },
       { upsert: true, new: true, session },
     );
   } else if (record.contactName) {
@@ -83,7 +103,7 @@ async function ingestOne({ workspaceId, source, reference, record, createdBy }, 
           primaryContactId: contact?._id,
           country: record.country,
           source,
-          ...(record.notes ? { notes: record.notes } : {}),
+          ...(record.notes || record.buyingSignal ? { notes: [record.notes, record.buyingSignal].filter(Boolean).join(' · ') } : {}),
           ...(record.tags?.length ? { tags: record.tags } : {}),
         },
       ],

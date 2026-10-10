@@ -47,6 +47,7 @@ export const INTEGRATIONS = [
     keys: [
       { name: 'APIFY_TOKEN', label: 'API token', secret: true, hint: 'Free: $5/month credit, renews monthly, no card.' },
       { name: 'APIFY_PLACES_ACTOR', label: 'Places actor', hint: 'default compass~crawler-google-places' },
+      { name: 'APIFY_LINKEDIN_ACTOR', label: 'LinkedIn actor', hint: 'Apify actor for LinkedIn profile search (people search scraper).' },
     ],
   },
   {

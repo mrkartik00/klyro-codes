@@ -9,6 +9,7 @@ import { Approval } from '../models/Approval.js';
 import { Message } from '../models/Message.js';
 import { SOCIAL_CHANNELS, SOCIAL_ACCOUNT_STATUSES } from '@klyro/shared/enums';
 import { listAccounts, unipileConfigured } from '../integrations/unipile/index.js';
+import { ingestBatch } from '../services/lead.service.js';
 import { writeAudit } from '../services/audit.service.js';
 import { env } from '../config/env.js';
 import { ApiError } from '../utils/ApiError.js';
@@ -81,6 +82,48 @@ linkedinRouter.post(
     if (!unipileConfigured()) return ok(res, { configured: false, accounts: [] });
     const accounts = await listAccounts();
     return ok(res, { configured: true, accounts });
+  }),
+);
+
+/** Import LinkedIn leads from a Sales Navigator / CSV export.
+ * Accepts { rows: [{ name, linkedinUrl, headline, company, city, country, buyingSignal }] }.
+ * Each row becomes a person-centric lead (deduped by profile URL) ready for a
+ * LinkedIn DM step. */
+linkedinRouter.post(
+  '/import',
+  validateBody(
+    z.object({
+      rows: z
+        .array(
+          z.object({
+            name: z.string().min(1),
+            linkedinUrl: z.string().url(),
+            headline: z.string().optional(),
+            company: z.string().optional(),
+            city: z.string().optional(),
+            country: z.string().optional(),
+            buyingSignal: z.string().optional(),
+          }),
+        )
+        .min(1)
+        .max(500),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const records = req.body.rows.map((r) => ({
+      name: r.company || r.name,
+      linkedinUrl: r.linkedinUrl,
+      contactName: r.name,
+      headline: r.headline,
+      contactTitle: r.headline,
+      city: r.city,
+      country: r.country,
+      buyingSignal: r.buyingSignal,
+      tags: ['linkedin', 'csv'],
+    }));
+    const result = await ingestBatch({ workspaceId: req.workspaceId, source: 'linkedin', reference: `csv:${Date.now()}`, records, createdBy: req.auth.userId });
+    await writeAudit({ workspaceId: req.workspaceId, actorId: req.auth.userId, action: 'linkedin.import', entity: 'lead', meta: { received: result.received, created: result.created } });
+    return ok(res, result);
   }),
 );
 

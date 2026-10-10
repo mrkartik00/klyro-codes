@@ -44,6 +44,7 @@ export const INTENT_SOURCES = {
   companieshouse: { label: 'New UK companies', trusted: true, business: true, needs: ['COMPANIES_HOUSE_API_KEY'], hint: 'Companies incorporated in the last days — they all need a website.' },
   googleplaces: { label: 'Google Places', trusted: true, business: true, needs: ['GOOGLE_PLACES_API_KEY'], hint: 'Businesses by text search (category × city). Returns website + phone.' },
   apify: { label: 'Apify (Google Maps)', trusted: true, business: true, needs: ['APIFY_TOKEN'], hint: 'Runs a Google Maps Actor across the web. Free $5/month credit.' },
+  linkedin: { label: 'LinkedIn profiles (Apify)', trusted: true, business: true, needs: ['APIFY_TOKEN'], hint: 'Finds LinkedIn profiles (name + profile URL + headline) by keyword × location — for LinkedIn DMs.' },
 };
 
 export const isIntentSource = (s) => Boolean(INTENT_SOURCES[s]);
@@ -633,7 +634,69 @@ async function runApify({ workspaceId, target, job, createdBy, limit, note }) {
   return { found: records.length, created: r.created, leads: r.leads };
 }
 
-const BUSINESS_HANDLERS = { companieshouse: runCompaniesHouse, googleplaces: runGooglePlaces, apify: runApify };
+/**
+ * Apify LinkedIn search Actor → person-centric leads (name + profile URL +
+ * headline + company). These feed the LinkedIn DM channel. The actor is
+ * configurable (APIFY_LINKEDIN_ACTOR); it must accept a search query and return
+ * items with a profileUrl/url + fullName/name + headline. Query is built from
+ * the target's keywords × cities (e.g. "founder plumbing Austin").
+ */
+async function runLinkedInSearch({ workspaceId, target, job, createdBy, limit, note }) {
+  const token = cfg('APIFY_TOKEN');
+  const actor = (cfg('APIFY_LINKEDIN_ACTOR') || 'curious_coder~linkedin-people-search-scraper').replace('/', '~');
+  const queries = businessQueries(target, 5);
+  const input = {
+    queries,
+    searchQueries: queries,
+    maxItems: limit,
+    maxResults: limit,
+    ...(target.country ? { location: COUNTRY_FULL[target.country?.toUpperCase()] || target.country } : {}),
+  };
+  const url = `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=290&memory=1024`;
+  let items = [];
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'user-agent': UA, accept: 'application/json' },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(295000),
+    });
+    if (!res.ok) {
+      note(`LinkedIn (Apify) error: ${reasonFor(res.status, (await res.text().catch(() => '')).slice(0, 200))}`);
+    } else {
+      items = await res.json().catch(() => []);
+    }
+  } catch (e) {
+    note(`LinkedIn (Apify) error: ${e.name === 'TimeoutError' ? 'run exceeded 295s' : e.message}`);
+  }
+  const records = (Array.isArray(items) ? items : [])
+    .slice(0, limit)
+    .map((p) => {
+      const profileUrl = p.profileUrl || p.url || p.linkedinUrl || p.publicProfileUrl;
+      const fullName = p.fullName || p.name || [p.firstName, p.lastName].filter(Boolean).join(' ');
+      if (!profileUrl || !fullName) return null;
+      return {
+        name: p.companyName || fullName, // org name (company if present, else person)
+        linkedinUrl: profileUrl,
+        linkedinProviderId: p.publicIdentifier || p.profileId || undefined,
+        contactName: fullName,
+        headline: p.headline || p.occupation || p.title,
+        contactTitle: p.headline || p.occupation || p.title,
+        city: p.location || p.city,
+        country: target.country,
+        category: target.categories?.[0],
+        buyingSignal: p.headline ? `LinkedIn: ${String(p.headline).slice(0, 140)}` : undefined,
+        tags: ['linkedin', 'apify'],
+      };
+    })
+    .filter(Boolean);
+  note(`LinkedIn (${actor}): ${records.length} profiles`);
+  if (!records.length) return { found: 0, created: 0, leads: [] };
+  const r = await ingestBatch({ workspaceId, source: 'linkedin', reference: String(job?._id ?? target._id), records, createdBy });
+  return { found: records.length, created: r.created, leads: r.leads };
+}
+
+const BUSINESS_HANDLERS = { companieshouse: runCompaniesHouse, googleplaces: runGooglePlaces, apify: runApify, linkedin: runLinkedInSearch };
 
 const ADAPTERS = { freelancer: fetchFreelancer, hackernews: fetchHackerNews, tenders: fetchTenders, bluesky: fetchBluesky, brave: fetchBrave, x: fetchX };
 

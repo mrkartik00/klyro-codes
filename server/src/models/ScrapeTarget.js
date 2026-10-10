@@ -6,7 +6,7 @@ const scrapeTargetSchema = new mongoose.Schema({
   group: { type: String, trim: true, index: true }, // for arranging searches in the admin (e.g. 'Home services')
   lastRunAt: { type: Date }, // scheduled reddit scans rotate oldest-first
   // maps = Google Maps businesses; reddit = people asking for help (social listening)
-  source: { type: String, enum: ['maps', 'reddit', 'freelancer', 'hackernews', 'tenders', 'bluesky', 'brave', 'x', 'companieshouse', 'googleplaces', 'apify'], default: 'maps', index: true },
+  source: { type: String, enum: ['maps', 'reddit', 'freelancer', 'hackernews', 'tenders', 'bluesky', 'brave', 'x', 'companieshouse', 'googleplaces', 'apify', 'linkedin'], default: 'maps', index: true },
   communities: { type: [String], default: [] }, // reddit: subreddit names without r/
   country: { type: String, default: 'US' },
   cities: { type: [String], default: [] },

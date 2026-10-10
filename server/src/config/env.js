@@ -47,6 +47,7 @@ const schema = z.object({
   GOOGLE_PLACES_API_KEY: z.string().optional(), // Places API (New) text search — businesses
   APIFY_TOKEN: z.string().optional(), // Apify actors (e.g. Google Maps crawler)
   APIFY_PLACES_ACTOR: z.string().optional(), // default compass~crawler-google-places
+  APIFY_LINKEDIN_ACTOR: z.string().optional(), // LinkedIn people/search actor for profile leads
   FIRECRAWL_API_KEY: z.string().optional(), // website fetch/read for enrichment
   SCRAPINGBEE_API_KEY: z.string().optional(), // website fetch via proxies (enrichment fallback)
   SCRAPLING_URL: z.string().optional(), // optional self-hosted Scrapling HTTP sidecar

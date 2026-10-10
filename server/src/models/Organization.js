@@ -6,6 +6,7 @@ const organizationSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   placeId: { type: String, default: null }, // Google Maps place id
   domain: { type: String, default: null, lowercase: true, trim: true },
+  linkedinUrl: { type: String, default: null, lowercase: true, trim: true }, // person/company LinkedIn (dedupe key)
   phone: { type: String, default: null }, // E.164
   address: { type: String },
   city: { type: String, index: true },
@@ -41,6 +42,10 @@ organizationSchema.index(
 organizationSchema.index(
   { workspaceId: 1, domain: 1 },
   { unique: true, partialFilterExpression: { domain: { $type: 'string' } } },
+);
+organizationSchema.index(
+  { workspaceId: 1, linkedinUrl: 1 },
+  { unique: true, partialFilterExpression: { linkedinUrl: { $type: 'string' } } },
 );
 organizationSchema.index({ workspaceId: 1, phone: 1 }, { sparse: true });
 
