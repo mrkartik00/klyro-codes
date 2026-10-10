@@ -643,46 +643,47 @@ async function runApify({ workspaceId, target, job, createdBy, limit, note }) {
  */
 async function runLinkedInSearch({ workspaceId, target, job, createdBy, limit, note }) {
   const token = cfg('APIFY_TOKEN');
-  const actor = (cfg('APIFY_LINKEDIN_ACTOR') || 'curious_coder~linkedin-people-search-scraper').replace('/', '~');
+  const actor = (cfg('APIFY_LINKEDIN_ACTOR') || 'harvestapi~linkedin-profile-search').replace('/', '~');
   const queries = businessQueries(target, 5);
-  const input = {
-    queries,
-    searchQueries: queries,
-    maxItems: limit,
-    maxResults: limit,
-    ...(target.country ? { location: COUNTRY_FULL[target.country?.toUpperCase()] || target.country } : {}),
-  };
+  const location = target.country ? COUNTRY_FULL[target.country?.toUpperCase()] || target.country : undefined;
+  const perQuery = Math.max(1, Math.ceil(limit / Math.max(1, queries.length)));
   const url = `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=290&memory=1024`;
-  let items = [];
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'user-agent': UA, accept: 'application/json' },
-      body: JSON.stringify(input),
-      signal: AbortSignal.timeout(295000),
-    });
-    if (!res.ok) {
-      note(`LinkedIn (Apify) error: ${reasonFor(res.status, (await res.text().catch(() => '')).slice(0, 200))}`);
-    } else {
-      items = await res.json().catch(() => []);
+  const items = [];
+  for (const q of queries) {
+    if (items.length >= limit) break;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'user-agent': UA, accept: 'application/json' },
+        body: JSON.stringify({ searchQuery: q, ...(location ? { location } : {}), maxItems: perQuery }),
+        signal: AbortSignal.timeout(295000),
+      });
+      if (!res.ok) {
+        note(`LinkedIn (Apify) error on "${q}": ${reasonFor(res.status, (await res.text().catch(() => '')).slice(0, 160))}`);
+        continue;
+      }
+      const batch = await res.json().catch(() => []);
+      if (Array.isArray(batch)) items.push(...batch);
+    } catch (e) {
+      note(`LinkedIn (Apify) error on "${q}": ${e.name === 'TimeoutError' ? 'run exceeded 295s' : e.message}`);
     }
-  } catch (e) {
-    note(`LinkedIn (Apify) error: ${e.name === 'TimeoutError' ? 'run exceeded 295s' : e.message}`);
   }
-  const records = (Array.isArray(items) ? items : [])
+  const records = items
     .slice(0, limit)
     .map((p) => {
-      const profileUrl = p.profileUrl || p.url || p.linkedinUrl || p.publicProfileUrl;
-      const fullName = p.fullName || p.name || [p.firstName, p.lastName].filter(Boolean).join(' ');
+      const profileUrl = p.linkedinUrl || p.profileUrl || p.url;
+      const fullName = p.fullName || p.name || [p.firstName, p.lastName].filter(Boolean).join(' ').trim();
       if (!profileUrl || !fullName) return null;
+      const email = Array.isArray(p.emails) ? p.emails[0] : p.email;
       return {
-        name: p.companyName || fullName, // org name (company if present, else person)
+        name: p.companyName || fullName,
         linkedinUrl: profileUrl,
-        linkedinProviderId: p.publicIdentifier || p.profileId || undefined,
+        linkedinProviderId: p.publicIdentifier || p.id || undefined,
         contactName: fullName,
-        headline: p.headline || p.occupation || p.title,
-        contactTitle: p.headline || p.occupation || p.title,
-        city: p.location || p.city,
+        headline: p.headline || p.occupation,
+        contactTitle: p.headline || p.occupation,
+        ...(email ? { email } : {}),
+        city: typeof p.location === 'string' ? p.location : p.location?.city,
         country: target.country,
         category: target.categories?.[0],
         buyingSignal: p.headline ? `LinkedIn: ${String(p.headline).slice(0, 140)}` : undefined,
