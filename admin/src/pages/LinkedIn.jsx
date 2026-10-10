@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, AlertTriangle, PlugZap } from 'lucide-react';
+import { Plus, AlertTriangle, PlugZap, Users, ExternalLink } from 'lucide-react';
 import api, { unwrap } from '../lib/api.js';
 import { useToast } from '../hooks/useToast.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
@@ -24,6 +25,12 @@ export default function LinkedIn() {
     queryFn: () => unwrap(api.get('/admin/linkedin/queue')),
     refetchInterval: 30000,
   });
+  const { data: drafts } = useQuery({
+    queryKey: ['linkedin-drafts'],
+    queryFn: () => unwrap(api.get('/admin/linkedin/drafts')),
+    refetchInterval: 30000,
+  });
+  const draftRows = Array.isArray(drafts) ? drafts : drafts?.items || [];
 
   const rows = Array.isArray(accounts) ? accounts : accounts?.items || [];
 
@@ -69,7 +76,10 @@ export default function LinkedIn() {
         description="Send personalised LinkedIn DMs via Unipile. Drafts are reviewed in Approvals before sending."
         actions={
           <>
-            <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending}>
+            <Button as={Link} to="/leads?source=linkedin" variant="secondary">
+              <Users size={16} aria-hidden="true" /> View LinkedIn leads
+            </Button>
+            <Button variant="secondary" onClick={() => test.mutate()} disabled={test.isPending}>
               <PlugZap size={16} aria-hidden="true" /> Test connection
             </Button>
             <Button onClick={() => setOpen(true)}>
@@ -142,7 +152,7 @@ export default function LinkedIn() {
                   </div>
                   <div className="flex items-center gap-2">
                     {a.status === 'active' ? (
-                      <Button variant="outline" onClick={() => update.mutate({ id: a._id, body: { status: 'paused' } })}>
+                      <Button variant="secondary" onClick={() => update.mutate({ id: a._id, body: { status: 'paused' } })}>
                         Pause
                       </Button>
                     ) : (
@@ -158,6 +168,47 @@ export default function LinkedIn() {
           ))}
         </div>
       )}
+
+      {/* Pending DMs review list */}
+      <div className="mt-6">
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="font-heading text-lg font-semibold">Pending DMs ({draftRows.length})</h2>
+          <Link to="/approvals" className="text-sm text-blue-300 hover:underline">
+            Review in Approvals →
+          </Link>
+        </div>
+        {draftRows.length === 0 ? (
+          <EmptyState title="No pending DMs" hint="LinkedIn drafts awaiting approval will appear here." />
+        ) : (
+          <div className="grid gap-3">
+            {draftRows.map((d) => (
+              <Card key={d.approvalId}>
+                <CardContent>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{d.name}</span>
+                        {d.linkedinUrl && (
+                          <a href={d.linkedinUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-300 hover:underline">
+                            profile <ExternalLink size={12} aria-hidden="true" />
+                          </a>
+                        )}
+                      </div>
+                      {d.title && <p className="truncate text-xs text-muted-foreground">{d.title}</p>}
+                    </div>
+                    {d.leadId && (
+                      <Link to={`/leads/${d.leadId}`} className="shrink-0 text-sm text-blue-300 hover:underline">
+                        Open lead
+                      </Link>
+                    )}
+                  </div>
+                  <p className="mt-2 rounded-md bg-muted/50 p-3 text-sm">{d.body}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
 
       <Dialog open={open} onClose={() => setOpen(false)} title="Add LinkedIn account">
         <form

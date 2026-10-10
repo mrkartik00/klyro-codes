@@ -127,6 +127,34 @@ linkedinRouter.post(
   }),
 );
 
+/** Pending LinkedIn DM drafts with recipient info, for review on the page. */
+linkedinRouter.get(
+  '/drafts',
+  asyncHandler(async (req, res) => {
+    const workspaceId = req.workspaceId;
+    const approvals = await Approval.find({ workspaceId, channel: 'linkedin', status: 'pending' })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+    const { Lead } = await import('../models/Lead.js');
+    const { Contact } = await import('../models/Contact.js');
+    const rows = [];
+    for (const a of approvals) {
+      const lead = a.leadId ? await Lead.findOne({ workspaceId, _id: a.leadId }).lean() : null;
+      const contact = lead?.primaryContactId ? await Contact.findOne({ workspaceId, _id: lead.primaryContactId }).lean() : null;
+      rows.push({
+        approvalId: a._id,
+        leadId: a.leadId,
+        name: contact?.name || 'Unknown',
+        title: contact?.title || '',
+        linkedinUrl: contact?.linkedinUrl || null,
+        body: a.draft?.body || '',
+      });
+    }
+    return ok(res, rows);
+  }),
+);
+
 /** Queue summary for the LinkedIn page: ready, sent today, recent failures. */
 linkedinRouter.get(
   '/queue',
