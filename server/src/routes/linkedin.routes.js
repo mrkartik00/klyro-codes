@@ -10,6 +10,7 @@ import { Message } from '../models/Message.js';
 import { SOCIAL_CHANNELS, SOCIAL_ACCOUNT_STATUSES } from '@klyro/shared/enums';
 import { listAccounts, unipileConfigured } from '../integrations/unipile/index.js';
 import { ingestBatch } from '../services/lead.service.js';
+import { isLinkedInSendingEnabled, setLinkedInSending } from '../services/social.send.service.js';
 import { writeAudit } from '../services/audit.service.js';
 import { env } from '../config/env.js';
 import { ApiError } from '../utils/ApiError.js';
@@ -161,11 +162,27 @@ linkedinRouter.get(
   '/queue',
   asyncHandler(async (req, res) => {
     const workspaceId = req.workspaceId;
-    const [ready, sentToday, failures] = await Promise.all([
+    const [ready, sentToday, failures, sendingEnabled] = await Promise.all([
       Approval.countDocuments({ workspaceId, status: 'approved', channel: 'linkedin' }),
       Message.countDocuments({ workspaceId, channel: 'linkedin', status: 'sent', sentAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) } }),
       Message.find({ workspaceId, channel: 'linkedin', status: 'failed' }).sort({ updatedAt: -1 }).limit(5).select('error updatedAt').lean(),
+      isLinkedInSendingEnabled(workspaceId),
     ]);
-    return ok(res, { ready, sentToday, failures, sendingEnabled: Boolean(env.LINKEDIN_SENDING_ENABLED) });
+    // envLocked = forced on by env var, so the UI toggle cannot turn it off.
+    return ok(res, { ready, sentToday, failures, sendingEnabled, envLocked: Boolean(env.LINKEDIN_SENDING_ENABLED) });
+  }),
+);
+
+/** Toggle LinkedIn sending on/off from the admin UI (deploy-proof setting). */
+linkedinRouter.post(
+  '/sending',
+  validateBody(z.object({ enabled: z.boolean() })),
+  asyncHandler(async (req, res) => {
+    if (env.LINKEDIN_SENDING_ENABLED) {
+      throw ApiError.badRequest('Sending is forced on by LINKEDIN_SENDING_ENABLED; unset it to control from here.');
+    }
+    const enabled = await setLinkedInSending(req.workspaceId, req.body.enabled);
+    await writeAudit({ workspaceId: req.workspaceId, actorId: req.auth.userId, action: 'linkedin.sending', entity: 'setting', meta: { enabled } });
+    return ok(res, { sendingEnabled: enabled });
   }),
 );

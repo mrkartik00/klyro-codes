@@ -8,14 +8,29 @@ import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { Workspace } from '../models/Workspace.js';
 import { Contact } from '../models/Contact.js';
+import { Setting } from '../models/Setting.js';
 import { readySends, claimSocialSend, recordSendResult } from './send.service.js';
 import { pullProfile, sendMessage, unipileConfigured } from '../integrations/unipile/index.js';
 
 const CHANNEL = 'linkedin';
+const SENDING_KEY = 'linkedin.sendingEnabled';
+
+/** Whether LinkedIn sending is enabled for a workspace: env flag OR admin toggle. */
+export async function isLinkedInSendingEnabled(workspaceId) {
+  if (env.LINKEDIN_SENDING_ENABLED) return true;
+  const s = await Setting.findOne({ workspaceId, key: SENDING_KEY }).lean();
+  return s?.value === true;
+}
+
+/** Flip the admin sending toggle for a workspace. */
+export async function setLinkedInSending(workspaceId, enabled) {
+  await Setting.updateOne({ workspaceId, key: SENDING_KEY }, { $set: { value: Boolean(enabled) } }, { upsert: true });
+  return Boolean(enabled);
+}
 
 /** Process one workspace's ready LinkedIn sends (bounded). Returns a summary. */
 export async function runLinkedInSends({ workspaceId, limit = 3 }) {
-  if (!env.LINKEDIN_SENDING_ENABLED) return { skipped: 'disabled' };
+  if (!(await isLinkedInSendingEnabled(workspaceId))) return { skipped: 'disabled' };
   if (!unipileConfigured()) return { skipped: 'unipile_not_configured' };
 
   const ready = await readySends({ workspaceId, limit, channel: CHANNEL });
@@ -61,9 +76,9 @@ export async function runLinkedInSends({ workspaceId, limit = 3 }) {
   return { ready: ready.length, sent, blocked, failed };
 }
 
-/** Run LinkedIn sends across all workspaces (worker entry). */
+/** Run LinkedIn sends across all workspaces (worker entry). Per-workspace gate
+ * (env flag OR admin toggle) is checked inside runLinkedInSends. */
 export async function runAllLinkedInSends() {
-  if (!env.LINKEDIN_SENDING_ENABLED) return;
   for (const ws of await Workspace.find().lean()) {
     const r = await runLinkedInSends({ workspaceId: ws._id, limit: 3 });
     if (r?.sent || r?.failed) logger.info({ workspaceId: String(ws._id), ...r }, 'linkedin send run');

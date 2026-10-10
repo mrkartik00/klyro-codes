@@ -68,6 +68,14 @@ export default function LinkedIn() {
     },
     onError: (e) => toast.error(e.message || 'Test failed'),
   });
+  const toggleSending = useMutation({
+    mutationFn: (enabled) => unwrap(api.post('/admin/linkedin/sending', { enabled })),
+    onSuccess: (d) => {
+      qc.invalidateQueries({ queryKey: ['linkedin-queue'] });
+      toast.success(d.sendingEnabled ? 'Sending enabled — approved DMs will go out (20/day, 5-min gaps).' : 'Sending paused — nothing will send.');
+    },
+    onError: (e) => toast.error(e.message || 'Could not change sending'),
+  });
 
   return (
     <div>
@@ -100,7 +108,7 @@ export default function LinkedIn() {
           <p className="mt-1 text-amber-200/80">
             Keep sends to 20–25/day with 5-minute gaps. If LinkedIn restricts the account, pause it
             immediately and wait 48–72 hours before resuming at half the volume. Sending is{' '}
-            {queue?.sendingEnabled ? 'ENABLED' : 'OFF (set LINKEDIN_SENDING_ENABLED to enable)'}.
+            {queue?.sendingEnabled ? 'ENABLED' : 'OFF'} — use the Sending toggle below to change it.
           </p>
         </div>
       </div>
@@ -122,7 +130,21 @@ export default function LinkedIn() {
         <Card>
           <CardContent>
             <p className="text-xs text-muted-foreground">Sending</p>
-            <p className="mt-1 text-2xl font-semibold">{queue?.sendingEnabled ? 'On' : 'Off'}</p>
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <p className={`text-2xl font-semibold ${queue?.sendingEnabled ? 'text-green-400' : ''}`}>
+                {queue?.sendingEnabled ? 'On' : 'Off'}
+              </p>
+              <Button
+                size="sm"
+                variant={queue?.sendingEnabled ? 'secondary' : 'success'}
+                disabled={toggleSending.isPending || queue?.envLocked}
+                title={queue?.envLocked ? 'Forced on by LINKEDIN_SENDING_ENABLED env var' : undefined}
+                onClick={() => toggleSending.mutate(!queue?.sendingEnabled)}
+              >
+                {queue?.sendingEnabled ? 'Pause sending' : 'Enable sending'}
+              </Button>
+            </div>
+            {queue?.envLocked && <p className="mt-1 text-[11px] text-muted-foreground">Locked on by env var</p>}
           </CardContent>
         </Card>
       </div>
