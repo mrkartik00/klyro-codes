@@ -36,7 +36,7 @@ analyticsRouter.get(
       Deal.countDocuments({ workspaceId: ws, stage: 'won' }),
       Campaign.countDocuments({ workspaceId: ws, status: 'active' }),
       Message.countDocuments({ workspaceId: ws, direction: 'outbound', sentAt: { $gte: startOfDay } }),
-      Message.countDocuments({ workspaceId: ws, direction: 'inbound', createdAt: { $gte: weekAgo } }),
+      Message.countDocuments({ workspaceId: ws, direction: 'inbound', status: { $ne: 'bounced' }, createdAt: { $gte: weekAgo } }),
       Invoice.aggregate([
         { $match: { workspaceId: ws, status: { $in: ['sent', 'partially_paid'] } } },
         { $group: { _id: '$currency', due: { $sum: { $subtract: ['$amountMinor', { $ifNull: ['$paidMinor', 0] }] } }, count: { $sum: 1 } } },
