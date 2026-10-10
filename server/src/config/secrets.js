@@ -92,6 +92,17 @@ export const INTEGRATIONS = [
     ],
   },
   {
+    id: 'unipile',
+    name: 'Unipile (LinkedIn / IG / WhatsApp)',
+    use: 'Pull profiles and send DMs on LinkedIn (and Instagram/WhatsApp) for social outreach',
+    url: 'https://app.unipile.com/settings/api-keys',
+    keys: [
+      { name: 'UNIPILE_API_KEY', label: 'API key', secret: true, hint: 'From app.unipile.com → Settings → API keys.' },
+      { name: 'UNIPILE_BASE_URL', label: 'Base URL', hint: 'e.g. https://api69.unipile.com:19916 — the port is shown on your Unipile dashboard.' },
+      { name: 'UNIPILE_LINKEDIN_ACCOUNT_ID', label: 'LinkedIn account ID', hint: 'The connected LinkedIn account to send from (GET /api/v1/accounts).' },
+    ],
+  },
+  {
     id: 'telegram',
     name: 'Telegram',
     use: 'Alerts + morning digest',
